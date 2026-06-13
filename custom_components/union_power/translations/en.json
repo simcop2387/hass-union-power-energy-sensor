@@ -5,11 +5,13 @@
       "user": {
         "data": {
           "account_number": "Account Number",
-          "password": "Password"
+          "password": "Password",
+          "cost_per_kwh": "Cost per kWh"
         },
         "data_description": {
           "account_number": "Your Union Power account number (e.g. 5497637001)",
-          "password": "Your Union Power portal password"
+          "password": "Your Union Power portal password",
+          "cost_per_kwh": "Optional — enables cost tracking in the Energy Dashboard (e.g. 0.12 for 12¢/kWh)"
         }
       }
     },
@@ -20,6 +22,26 @@
     },
     "abort": {
       "already_configured": "Union Power integration is already configured for this account."
+    }
+  },
+  "services": {
+    "import_range": {
+      "name": "Import Usage Range",
+      "description": "Import historical usage data for a custom date range",
+      "fields": {
+        "start_date": {
+          "name": "Start Date",
+          "description": "Start date in YYYY-MM-DD format"
+        },
+        "end_date": {
+          "name": "End Date",
+          "description": "End date in YYYY-MM-DD format"
+        }
+      }
+    },
+    "fill_all_stats": {
+      "name": "Fill All Statistics",
+      "description": "Rewrite price data on all existing statistics (requires cost_per_kwh to be set)"
     }
   }
 }

@@ -12,6 +12,7 @@ from .const import (
     DOMAIN,
     CONF_ACCOUNT_NUMBER,
     CONF_PASSWORD,
+    CONF_COST_PER_KWH,
 )
 from .api import UnionPowerAPI
 from .exceptions import UnionPowerAuthenticationError, UnionPowerConnectionError
@@ -19,10 +20,22 @@ from .exceptions import UnionPowerAuthenticationError, UnionPowerConnectionError
 _LOGGER = logging.getLogger(__name__)
 
 
+async def async_migrate_entry(hass, entry: config_entries.ConfigEntry):
+    """Migrate old config entry to new version."""
+    _LOGGER.info("Migrating Union Power config from version %s", entry.version)
+    if entry.version == 1:
+        new_data = {**entry.data}
+        new_data[CONF_COST_PER_KWH] = None
+        hass.config_entries.async_update_entry(entry, version=2, data=new_data)
+    _LOGGER.info("Migration to version %s successful", entry.version)
+    return True
+
+
 class UnionPowerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Union Power."""
 
-    VERSION = 1
+    VERSION = 2
+    MINOR_VERSION = 1
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -54,6 +67,7 @@ class UnionPowerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             {
                 vol.Required(CONF_ACCOUNT_NUMBER): str,
                 vol.Required(CONF_PASSWORD): str,
+                vol.Optional(CONF_COST_PER_KWH, default=None): vol.Any(None, vol.Coerce(float)),
             }
         )
 

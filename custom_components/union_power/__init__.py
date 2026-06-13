@@ -26,6 +26,7 @@ def _log(level: str, msg: str, *args) -> None:
 PLATFORMS = [Platform.SENSOR]
 
 SERVICE_IMPORT_RANGE = "import_range"
+SERVICE_FILL_ALL_STATS = "fill_all_stats"
 
 IMPORT_RANGE_SCHEMA = vol.Schema(
     {
@@ -103,6 +104,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     entry.async_on_unload(
         lambda: hass.services.async_remove(DOMAIN, SERVICE_IMPORT_RANGE)
+    )
+
+    # Register fill_all_stats service
+    async def handle_fill_all_stats(call: ServiceCall) -> None:
+        """Handle the fill_all_stats service call."""
+        _log("warning", "[UNION] Service fill_all_stats called")
+        coord: UnionPowerDataUpdateCoordinator = entry.runtime_data
+        count = await coord.fill_all_stats()
+        _log("warning", "[UNION] Service fill_all_stats done: %d records updated", count)
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_FILL_ALL_STATS,
+        handle_fill_all_stats,
+    )
+
+    entry.async_on_unload(
+        lambda: hass.services.async_remove(DOMAIN, SERVICE_FILL_ALL_STATS)
     )
 
     return True

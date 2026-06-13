@@ -5,6 +5,7 @@ DOMAIN = "union_power"
 # Configuration keys
 CONF_ACCOUNT_NUMBER = "account_number"
 CONF_PASSWORD = "password"
+CONF_COST_PER_KWH = "cost_per_kwh"
 
 # Poll interval — locked to daily since data only updates once per day
 POLL_INTERVAL_MINUTES = 1440

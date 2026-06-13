@@ -16,3 +16,7 @@ import_range:
       required: true
       selector:
         date: {}
+
+fill_all_stats:
+  name: Fill All Statistics
+  description: Rewrite price data on all existing statistics (requires cost_per_kwh to be set)

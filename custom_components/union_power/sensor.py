@@ -9,6 +9,8 @@ from typing import Any, Dict, List, Optional
 from homeassistant.components.recorder.statistics import (
     async_add_external_statistics,
     get_last_statistics,
+    get_start_time,
+    statistics_during_period,
 )
 from homeassistant.components.recorder import get_instance
 from homeassistant.components.recorder.models import (
@@ -49,10 +51,12 @@ from .exceptions import (
     UnionPowerConnectionError,
     UnionPowerError,
 )
+
 from .const import (
     BASE_URL,
     DOMAIN,
     CONF_ACCOUNT_NUMBER,
+    CONF_COST_PER_KWH,
     DATA_LAG_DAYS,
     HISTORICAL_IMPORT_DAYS,
     ENERGY_SENSOR_KEY,
@@ -62,7 +66,7 @@ from .const import (
     STAT_CONSUMPTION_DAILY,
     STAT_RETURN_HOURLY,
     STAT_RETURN_DAILY,
-)
+    )
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -143,7 +147,8 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
                 _log("warning", "No interval data returned for %s → %s", start_date.date(), end_date.date())
                 return
 
-            await self._insert_statistics(records)
+            cost_per_kwh = self.config_entry.data.get(CONF_COST_PER_KWH)
+            await self._insert_statistics(records, cost_per_kwh=cost_per_kwh)
 
             monthly_total, last_reading_time = self._compute_monthly(records)
 
@@ -178,9 +183,78 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
             _log("warning", "No data returned for range %s → %s", start_date.date(), end_date.date())
             return 0
 
-        await self._insert_statistics(records)
+        cost_per_kwh = self.config_entry.data.get(CONF_COST_PER_KWH)
+        await self._insert_statistics(records, cost_per_kwh=cost_per_kwh)
         _log("warning", "[UNION] import_range inserted %d records for %s → %s", len(records), start_date.date(), end_date.date())
         return len(records)
+
+    async def fill_all_stats(self) -> int:
+        """Rewrite price data on all existing statistics.
+
+        Reads all existing hourly consumption stats from the recorder and
+        re-inserts them with price data if cost_per_kwh is configured.
+        Returns number of records updated.
+        """
+        cost_per_kwh = self.config_entry.data.get(CONF_COST_PER_KWH)
+        if not cost_per_kwh:
+            _log("warning", "[UNION] fill_all_stats: cost_per_kwh not configured, nothing to do")
+            return 0
+
+        stat_id = STAT_CONSUMPTION_HOURLY.format(account=self.account_number)
+
+        # Get the earliest data in the recorder
+        start_time = await self.hass.async_add_executor_job(get_start_time)
+        end_time = datetime.now()
+
+        _log("warning", "[UNION] fill_all_stats: reading stats from %s to %s", start_time, end_time)
+
+        # Read all existing hourly stats
+        stats = await self.hass.async_add_executor_job(
+            statistics_during_period,
+            self.hass,
+            start_time,
+            end_time,
+            {stat_id},
+            "hour",
+            None,
+            {"sum"},
+        )
+
+        rows = stats.get(stat_id, [])
+        if not rows:
+            _log("warning", "[UNION] fill_all_stats: no existing stats found")
+            return 0
+
+        _log("warning", "[UNION] fill_all_stats: found %d existing stats, rewriting with price", len(rows))
+
+        # Re-insert with price
+        ha_tz = ZoneInfo(self.hass.config.time_zone)
+        new_stats: List[StatisticData] = []
+        for row in rows:
+            dt = datetime.fromtimestamp(row["start"], tz=timezone.utc).astimezone(ha_tz)
+            s = row.get("sum", 0.0) or 0.0
+            state = row.get("state", s) or 0.0
+            price = round(s * cost_per_kwh, 6)
+            new_stats.append(
+                StatisticData(start=dt, state=state, sum=s, price=price)
+            )
+
+        cons_unit_class = EnergyConverter.UNIT_CLASS
+        cons_unit = UnitOfEnergy.KILO_WATT_HOUR
+
+        meta = StatisticMetaData(
+            mean_type=StatisticMeanType.NONE,
+            has_sum=True,
+            name=f"Union Power Energy Hourly Usage - {self.account_number}",
+            source=DOMAIN,
+            statistic_id=stat_id,
+            unit_class=cons_unit_class,
+            unit_of_measurement=cons_unit,
+        )
+
+        async_add_external_statistics(self.hass, meta, new_stats)
+        _log("warning", "[UNION] fill_all_stats: rewrote %d stats with price", len(new_stats))
+        return len(new_stats)
 
     async def _get_last_stat(self, statistic_id: str) -> Optional[float]:
         """Get the timestamp of the last statistic entry."""
@@ -191,7 +265,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
             return last_stat[statistic_id][0].get("start")
         return None
 
-    async def _insert_statistics(self, records: List[IntervalUsage]) -> None:
+    async def _insert_statistics(self, records: List[IntervalUsage], cost_per_kwh: Optional[float] = None) -> None:
         """Insert hourly and daily statistics into the HA recorder."""
         # Group by day
         daily: Dict[str, Dict[str, float]] = {}
@@ -267,8 +341,9 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
         for rec in hourly_consumption:
             dt = _localize(self.api.parse_timestamp(rec.timestamp))
             cons_sum += rec.used_from_grid
+            price = round(cons_sum * cost_per_kwh, 6) if cost_per_kwh else None
             cons_hourly_stats.append(
-                StatisticData(start=dt, state=rec.used_from_grid, sum=cons_sum)
+                StatisticData(start=dt, state=rec.used_from_grid, sum=cons_sum, price=price)
             )
 
         # Build daily consumption stats (cumulative)
@@ -278,8 +353,9 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
             dt = _localize(datetime.strptime(day_key, "%m/%d/%Y"))
             day_total = daily[day_key]["consumption"]
             cons_daily_sum += day_total
+            price = round(cons_daily_sum * cost_per_kwh, 6) if cost_per_kwh else None
             cons_daily_stats.append(
-                StatisticData(start=dt, state=day_total, sum=cons_daily_sum)
+                StatisticData(start=dt, state=day_total, sum=cons_daily_sum, price=price)
             )
 
         # Build hourly return stats
