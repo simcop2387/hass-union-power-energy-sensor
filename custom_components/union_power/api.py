@@ -315,13 +315,16 @@ class UnionPowerAPI:
 
     @staticmethod
     def _parse_interval_item(item: Dict[str, Any]) -> IntervalUsage:
-        """Parse a single interval data item."""
+        """Parse a single interval data item.
+
+        Interval API fields: KWH (consumption), GKWH (generation).
+        """
         return IntervalUsage(
             timestamp=item.get("UsageHourDate", ""),
             kwh=_parse_float(item.get("KWH")) or 0.0,
-            used_from_grid=_parse_float(item.get("USEDFROMGRID")) or 0.0,
-            total_generation=_parse_float(item.get("TOTALGENERATION")) or 0.0,
-            excess_generation=_parse_float(item.get("EXCESSGENERATION")) or 0.0,
+            used_from_grid=_parse_float(item.get("KWH")) or 0.0,
+            total_generation=_parse_float(item.get("GKWH")) or 0.0,
+            excess_generation=0.0,
             temp=_parse_float(item.get("Temp")),
             humidity=_parse_float(item.get("Humidity")),
             wind_speed=_parse_float(item.get("WindSpeed")),
