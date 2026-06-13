@@ -105,6 +105,10 @@ class UnionPowerAPI:
         2. POST /Customer-Login with credentials
         3. Navigate through redirect chain to establish session
         """
+        # Always use a fresh session — sessions expire after 5 minutes
+        if self._session and not self._session.closed:
+            await self._session.close()
+            self._session = None
         session = await self._get_session()
 
         # Step 1: GET login page to extract tokens
@@ -120,8 +124,16 @@ class UnionPowerAPI:
         csrf = soup.find("input", attrs={"name": "__RequestVerificationToken"})
 
         if not vs or not ev or not csrf:
+            missing = []
+            if not vs:
+                missing.append("__VIEWSTATE")
+            if not ev:
+                missing.append("__EVENTVALIDATION")
+            if not csrf:
+                missing.append("__RequestVerificationToken")
+            _LOGGER.error("Missing form tokens: %s", ", ".join(missing))
             raise UnionPowerAuthenticationError(
-                "Could not extract login form tokens from page"
+                f"Could not extract login form tokens from page (missing: {', '.join(missing)})"
             )
 
         viewstate = vs.get("value", "")
@@ -165,6 +177,7 @@ class UnionPowerAPI:
             text = await resp.text()
 
         if "pageRedirect" not in text:
+            _LOGGER.error("Login POST returned no pageRedirect, response length: %d, first 500 chars: %s", len(text), text[:500])
             raise UnionPowerAuthenticationError(
                 "Login failed — no redirect in response. Check credentials."
             )
