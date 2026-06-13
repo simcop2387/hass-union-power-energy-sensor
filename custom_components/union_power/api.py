@@ -23,8 +23,8 @@ from .exceptions import (
 
 _LOGGER = logging.getLogger(__name__)
 
-def _log(level: int, msg: str, *args: Any) -> None:
-    getattr(_LOGGER, level)(f"[UNION] {msg}", *args)
+def _log(level: str, msg: str, *args: Any) -> None:
+    getattr(_LOGGER, level)(msg, *args)
 
 
 @dataclass

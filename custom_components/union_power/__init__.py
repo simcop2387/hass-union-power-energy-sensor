@@ -22,7 +22,7 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 def _log(level: str, msg: str, *args) -> None:
-    getattr(_LOGGER, level)(f"[UNION] {msg}", *args)
+    getattr(_LOGGER, level)(msg, *args)
 
 PLATFORMS = [Platform.SENSOR]
 
@@ -102,10 +102,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         """Handle the import_range service call."""
         start = datetime.strptime(call.data["start_date"], "%Y-%m-%d")
         end = datetime.strptime(call.data["end_date"], "%Y-%m-%d")
-        _log("warning", "[UNION] Service import_range called: %s → %s", start.date(), end.date())
+        _log("warning", "Service import_range called: %s → %s", start.date(), end.date())
         coord: UnionPowerDataUpdateCoordinator = entry.runtime_data
         count = await coord.import_range(start, end)
-        _log("warning", "[UNION] Service import_range done: %d records", count)
+        _log("warning", "Service import_range done: %d records", count)
 
     hass.services.async_register(
         DOMAIN,
@@ -121,10 +121,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Register fill_all_stats service
     async def handle_fill_all_stats(call: ServiceCall) -> None:
         """Handle the fill_all_stats service call."""
-        _log("warning", "[UNION] Service fill_all_stats called")
+        _log("warning", "Service fill_all_stats called")
         coord: UnionPowerDataUpdateCoordinator = entry.runtime_data
         count = await coord.fill_all_stats()
-        _log("warning", "[UNION] Service fill_all_stats done: %d records updated", count)
+        _log("warning", "Service fill_all_stats done: %d records updated", count)
 
     hass.services.async_register(
         DOMAIN,
