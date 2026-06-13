@@ -251,6 +251,7 @@ class UnionPowerAPI:
             err_desc = error.get("errordesc", "")
             if err_desc:
                 _LOGGER.warning("API error for %s: %s", day.strftime("%Y-%m-%d"), err_desc)
+            _LOGGER.debug("No items for %s, response type: %s", day.strftime("%Y-%m-%d"), data.get("__type", "unknown"))
             return []
 
         return [self._parse_interval_item(i) for i in items]

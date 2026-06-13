@@ -49,6 +49,7 @@ from .exceptions import (
     UnionPowerError,
 )
 from .const import (
+    BASE_URL,
     DOMAIN,
     CONF_ACCOUNT_NUMBER,
     DATA_LAG_DAYS,
@@ -117,7 +118,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
             if last_stat is None:
                 # First run: backfill 90 days
                 start_date = end_date - timedelta(days=HISTORICAL_IMPORT_DAYS)
-                _LOGGER.info("Initial import: fetching %d days of history", HISTORICAL_IMPORT_DAYS)
+                _LOGGER.info("Initial import: %s → %s (%d days)", start_date.date(), end_date.date(), HISTORICAL_IMPORT_DAYS)
             else:
                 # Incremental: fetch from last stat minus buffer
                 start_date = datetime.fromtimestamp(last_stat, tz=timezone.utc).replace(
@@ -131,7 +132,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
             records = await self.api.get_interval_usage(start_date, end_date)
 
             if not records:
-                _LOGGER.warning("No interval data returned")
+                _LOGGER.warning("No interval data returned for %s → %s", start_date.date(), end_date.date())
                 return self.data or {}
 
             await self._insert_statistics(records)
