@@ -6,17 +6,12 @@ from typing import Any
 
 import voluptuous as vol
 from homeassistant import config_entries
-from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResult
 
 from .const import (
     DOMAIN,
     CONF_ACCOUNT_NUMBER,
     CONF_PASSWORD,
-    CONF_POLL_INTERVAL,
-    DEFAULT_POLL_INTERVAL,
-    MIN_POLL_INTERVAL,
-    MAX_POLL_INTERVAL,
 )
 from .api import UnionPowerAPI
 from .exceptions import UnionPowerAuthenticationError, UnionPowerConnectionError
@@ -59,9 +54,6 @@ class UnionPowerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             {
                 vol.Required(CONF_ACCOUNT_NUMBER): str,
                 vol.Required(CONF_PASSWORD): str,
-                vol.Required(
-                    CONF_POLL_INTERVAL, default=DEFAULT_POLL_INTERVAL
-                ): vol.All(vol.Coerce(int), vol.Range(min=MIN_POLL_INTERVAL, max=MAX_POLL_INTERVAL)),
             }
         )
 

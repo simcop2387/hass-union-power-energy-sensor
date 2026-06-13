@@ -5,13 +5,11 @@
       "user": {
         "data": {
           "account_number": "Account Number",
-          "password": "Password",
-          "poll_interval": "Poll Interval (minutes)"
+          "password": "Password"
         },
         "data_description": {
           "account_number": "Your Union Power account number (e.g. 5497637001)",
-          "password": "Your Union Power portal password",
-          "poll_interval": "How often to check for new data (60-1440 minutes)"
+          "password": "Your Union Power portal password"
         }
       }
     },
