@@ -200,12 +200,17 @@ class UnionPowerAPI:
     ) -> List[IntervalUsage]:
         """Fetch hourly interval usage data with day-by-day pagination.
 
-        Returns list of IntervalUsage records. Each call fetches one day.
+        Re-logs in every 10 days to keep the session alive (expires after 5 min).
         """
         all_records: List[IntervalUsage] = []
         current = start_date
+        days_since_login = -1
 
         while current <= end_date:
+            days_since_login += 1
+            if days_since_login % 10 == 0:
+                _LOGGER.debug("Re-authenticating for day %s", current.strftime("%Y-%m-%d"))
+                await self.login()
             records = await self._fetch_interval_day(current)
             all_records.extend(records)
             current += timedelta(days=1)
