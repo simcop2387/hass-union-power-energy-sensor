@@ -197,18 +197,20 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
         """
         cost_per_kwh = self.config_entry.data.get(CONF_COST_PER_KWH)
         if not cost_per_kwh:
-            _log("warning", "[UNION] fill_all_stats: cost_per_kwh not configured, nothing to do")
+            _log("warning", "[UNION] fill_all_stats: cost_per_kwh not configured (value=%s), nothing to do", cost_per_kwh)
             return 0
+
+        _log("warning", "[UNION] fill_all_stats: cost_per_kwh = %s", cost_per_kwh)
 
         stat_id = STAT_CONSUMPTION_HOURLY.format(account=self.account_number)
 
-        # Get the earliest data in the recorder
-        start_time = await self.hass.async_add_executor_job(get_start_time)
-        end_time = datetime.now()
+        # Use a far-past start date — get_start_time() only returns current session start
+        start_time = datetime(2020, 1, 1, tzinfo=timezone.utc)
+        end_time = datetime.now(tz=timezone.utc)
 
         _log("warning", "[UNION] fill_all_stats: reading stats from %s to %s", start_time, end_time)
 
-        # Read all existing hourly stats
+        # Read all existing hourly stats — use "hour" period to match the stat granularity
         stats = await self.hass.async_add_executor_job(
             statistics_during_period,
             self.hass,
@@ -253,7 +255,8 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
         )
 
         async_add_external_statistics(self.hass, meta, new_stats)
-        _log("warning", "[UNION] fill_all_stats: rewrote %d stats with price", len(new_stats))
+        _log("warning", "[UNION] fill_all_stats: rewrote %d stats with price (last sum=%.3f, last price=%.3f)",
+             len(new_stats), new_stats[-1].sum, new_stats[-1].price)
         return len(new_stats)
 
     async def _get_last_stat(self, statistic_id: str) -> Optional[float]:
