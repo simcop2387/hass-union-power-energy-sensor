@@ -88,6 +88,7 @@ class UnionPowerAPI:
             self._session = aiohttp.ClientSession(
                 timeout=timeout,
                 connector=aiohttp.TCPConnector(ssl=True),
+                cookie_jar=aiohttp.CookieJar(),
                 headers={
                     "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:151.0) Gecko/20100101 Firefox/151.0",
                 },
@@ -197,6 +198,8 @@ class UnionPowerAPI:
                 await resp.text()
 
         _log("info", "Successfully logged in to Union Power portal")
+        cookies = list(session.cookie_jar())
+        _log("debug", "Session cookies after login: %s", [c.key for c in cookies])
 
     async def get_interval_usage(
         self, start_date: datetime, end_date: datetime
@@ -257,6 +260,7 @@ class UnionPowerAPI:
             },
         ) as resp:
             resp.raise_for_status()
+            _log("debug", "API response status=%d, set-cookies=%s", resp.status, list(resp.cookies.keys()))
             raw = await resp.json()
 
         data = raw.get("d", raw)

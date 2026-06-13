@@ -9,6 +9,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ConfigEntryError
+import homeassistant.helpers.event as evt
 
 from .api import UnionPowerAPI
 from .sensor import UnionPowerDataUpdateCoordinator
@@ -74,7 +75,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await coordinator.run_fetch_cycle()
 
     entry.async_on_unload(
-        hass.helpers.event.async_track_time_change(
+        evt.async_track_time_change(
             _scheduled_fetch,
             hour=6,
             minute=0,
