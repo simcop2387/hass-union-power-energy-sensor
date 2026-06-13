@@ -100,9 +100,16 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
         self.account_number = config_entry.data.get(CONF_ACCOUNT_NUMBER, "unknown")
 
     async def _async_update_data(self) -> Dict[str, Any]:
-        """Fetch data and update statistics."""
+        """Return stored data. Fetching is done by background tasks, not here."""
+        return self.data or {}
+
+    async def run_fetch_cycle(self) -> None:
+        """Run a full fetch cycle: login, fetch, insert stats, update coordinator data.
+
+        Called by background tasks, NOT by the coordinator's update loop.
+        """
         try:
-            _LOGGER.debug("Fetching data from Union Power API")
+            _LOGGER.debug("Running fetch cycle")
             await self.api.login()
 
             now = datetime.now()
@@ -110,51 +117,45 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
                 hour=0, minute=0, second=0, microsecond=0
             )
 
-            # Determine if first run or incremental
             last_stat = await self._get_last_stat(
                 STAT_CONSUMPTION_HOURLY.format(account=self.account_number)
             )
 
             if last_stat is None:
-                # First run: backfill 90 days
                 start_date = end_date - timedelta(days=HISTORICAL_IMPORT_DAYS)
                 _LOGGER.info("Initial import: %s → %s (%d days)", start_date.date(), end_date.date(), HISTORICAL_IMPORT_DAYS)
             else:
-                # Incremental: fetch from last stat minus buffer
                 start_date = datetime.fromtimestamp(last_stat, tz=timezone.utc).replace(
                     tzinfo=None
                 ) - timedelta(days=2)
                 if start_date >= end_date:
                     _LOGGER.debug("No new data to fetch")
-                    return self.data or {}
+                    return
                 _LOGGER.info("Incremental update: %s → %s", start_date.date(), end_date.date())
 
             records = await self.api.get_interval_usage(start_date, end_date)
 
             if not records:
                 _LOGGER.warning("No interval data returned for %s → %s", start_date.date(), end_date.date())
-                return self.data or {}
+                return
 
             await self._insert_statistics(records)
 
-            # Compute monthly total for sensor entity
             monthly_total, last_reading_time = self._compute_monthly(records)
 
-            result: Dict[str, Any] = {
+            self.data = {
                 ENERGY_SENSOR_KEY: monthly_total,
                 ATTR_LAST_READING_TIME: last_reading_time,
                 ATTR_ACCOUNT_NUMBER: self.account_number,
             }
-            self.data = result
-            return result
+            _LOGGER.info("Fetch cycle complete: %d records, %.3f kWh monthly", len(records), monthly_total)
 
         except (UnionPowerAuthenticationError, UnionPowerConnectionError) as e:
-            raise UpdateFailed(f"Authentication/connection failed: {e}") from e
+            _LOGGER.error("Fetch cycle failed - authentication/connection: %s", e)
         except UnionPowerError as e:
-            raise UpdateFailed(f"Error communicating with Union Power: {e}") from e
+            _LOGGER.error("Fetch cycle failed - API error: %s", e)
         except Exception as e:
-            _LOGGER.exception("Unexpected error fetching Union Power data")
-            raise UpdateFailed(f"Unexpected error: {e}") from e
+            _LOGGER.exception("Fetch cycle failed - unexpected error: %s", e)
 
     async def import_range(
         self, start_date: datetime, end_date: datetime

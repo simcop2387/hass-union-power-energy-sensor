@@ -185,11 +185,11 @@ class UnionPowerAPI:
         # Step 3: Navigate redirect chain to establish full session
         _LOGGER.debug("Following post-login redirect chain")
         for path in (
-            "//BillingPayments/tabid/42/Default.aspx",
+            "/BillingPayments/tabid/42/Default.aspx",
             "/Billing-Payments",
             "/My-Account/Usage-History",
         ):
-            async with session.get(f"{BASE_URL}{path}") as resp:
+            async with session.get(f"{BASE_URL}{path}", allow_redirects=True) as resp:
                 resp.raise_for_status()
                 await resp.text()
 
@@ -205,11 +205,17 @@ class UnionPowerAPI:
         all_records: List[IntervalUsage] = []
         current = start_date
         days_since_login = -1
+        total_days = (end_date - start_date).days + 1
+
+        _LOGGER.info("Fetching interval data: %s → %s (%d days, keymbr=%s, MemberSep=%s)",
+                      start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"),
+                      total_days, self.keymbr, self.member_sep)
 
         while current <= end_date:
             days_since_login += 1
             if days_since_login % 10 == 0:
-                _LOGGER.debug("Re-authenticating for day %s", current.strftime("%Y-%m-%d"))
+                _LOGGER.info("Re-authenticating (day %d/%d: %s)",
+                             days_since_login, total_days, current.strftime("%Y-%m-%d"))
                 await self.login()
             records = await self._fetch_interval_day(current)
             all_records.extend(records)
@@ -235,9 +241,12 @@ class UnionPowerAPI:
 
         session = await self._get_session()
         body_text = json.dumps(body, separators=(",", ":")).replace('"', "'")
+        url = f"{BASE_URL}/DesktopModules/MeterUsage/API/MeterData.aspx/GetIntervalData"
+
+        _LOGGER.debug("POST %s body=%s", url, body_text)
 
         async with session.post(
-            f"{BASE_URL}/DesktopModules/MeterUsage/API/MeterData.aspx/GetIntervalData",
+            url,
             data=body_text,
             headers={
                 "Content-Type": "application/json; charset=utf-8",
@@ -256,9 +265,14 @@ class UnionPowerAPI:
             err_desc = error.get("errordesc", "")
             if err_desc:
                 _LOGGER.warning("API error for %s: %s", day.strftime("%Y-%m-%d"), err_desc)
-            _LOGGER.debug("No items for %s, response type: %s", day.strftime("%Y-%m-%d"), data.get("__type", "unknown"))
+            _LOGGER.warning("No items for %s — keys: %s, __type: %s, full response sample: %s",
+                           day.strftime("%Y-%m-%d"),
+                           list(data.keys()) if isinstance(data, dict) else type(data),
+                           data.get("__type", "unknown") if isinstance(data, dict) else "not-dict",
+                           json.dumps(data, default=str)[:300])
             return []
 
+        _LOGGER.debug("Got %d items for %s", len(items), day.strftime("%Y-%m-%d"))
         return [self._parse_interval_item(i) for i in items]
 
     @staticmethod

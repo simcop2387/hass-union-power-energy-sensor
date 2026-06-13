@@ -55,10 +55,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         config_entry=entry,
     )
 
-    await coordinator.async_config_entry_first_refresh()
+    # Don't block startup — coordinator returns empty data immediately
     entry.runtime_data = coordinator
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    # Schedule initial fetch as background task (does not block startup)
+    hass.async_create_task(
+        _initial_fetch(hass, coordinator),
+        name="union_power_initial_fetch",
+    )
+
+    # Schedule daily recurring fetch
+    async def _scheduled_fetch(_: datetime) -> None:
+        await coordinator.run_fetch_cycle()
+
+    entry.async_on_unload(
+        hass.helpers.event.async_track_time_change(
+            _scheduled_fetch,
+            hour=6,
+            minute=0,
+            second=0,
+        )
+    )
 
     # Register import_range service
     async def handle_import_range(call: ServiceCall) -> None:
@@ -82,6 +101,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
 
     return True
+
+
+async def _initial_fetch(hass: HomeAssistant, coordinator: UnionPowerDataUpdateCoordinator) -> None:
+    """Run the initial data fetch in the background."""
+    _LOGGER.info("Starting initial background data fetch...")
+    await coordinator.run_fetch_cycle()
+    _LOGGER.info("Initial background data fetch complete")
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
