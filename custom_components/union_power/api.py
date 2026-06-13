@@ -198,8 +198,6 @@ class UnionPowerAPI:
                 await resp.text()
 
         _log("info", "Successfully logged in to Union Power portal")
-        cookies = list(session.cookie_jar)
-        _log("debug", "Session cookies after login: %s", [c.key for c in cookies])
 
     async def get_interval_usage(
         self, start_date: datetime, end_date: datetime
