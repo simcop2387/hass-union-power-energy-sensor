@@ -113,7 +113,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
         Called by background tasks, NOT by the coordinator's update loop.
         """
         try:
-            _log("debug", "Running fetch cycle")
+            _log("info", "Running fetch cycle")
             await self.api.login()
 
             now = datetime.now()

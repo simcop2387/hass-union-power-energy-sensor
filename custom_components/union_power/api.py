@@ -116,7 +116,7 @@ class UnionPowerAPI:
         session = await self._get_session()
 
         # Step 1: GET login page to extract tokens
-        _log("debug", "Fetching login page")
+        _log("info", "Fetching login page")
         async with session.get(f"{BASE_URL}/Customer-Login") as resp:
             resp.raise_for_status()
             html = await resp.text()
@@ -145,7 +145,7 @@ class UnionPowerAPI:
         csrftoken = csrf.get("value", "")
 
         # Step 2: POST credentials
-        _log("debug", "Submitting login credentials")
+        _log("info", "Submitting login credentials")
         payload = {
             "ScriptManager": "dnn$ctr384$CustomerLogin$UpdatePanel1|dnn$ctr384$CustomerLogin$btnLogin",
             "__LASTFOCUS": "",
@@ -179,7 +179,7 @@ class UnionPowerAPI:
         ) as resp:
             resp.raise_for_status()
             text = await resp.text()
-            _log("debug", "Login POST set-cookies: %s", list(resp.cookies.keys()))
+            _log("info", "Login POST set-cookies: %s", list(resp.cookies.keys()))
 
         if "pageRedirect" not in text:
             _log("error", "Login POST returned no pageRedirect, response length: %d, first 500 chars: %s", len(text), text[:500])
@@ -188,7 +188,7 @@ class UnionPowerAPI:
             )
 
         # Step 3: Navigate redirect chain to establish full session
-        _log("debug", "Following post-login redirect chain")
+        _log("info", "Following post-login redirect chain")
         for path in (
             "/BillingPayments/tabid/42/Default.aspx",
             "/Billing-Payments",
@@ -199,7 +199,7 @@ class UnionPowerAPI:
                 await resp.text()
 
         _log("info", "Successfully logged in to Union Power portal")
-        _log("debug", "Cookies after login: %s", [c.key for c in session.cookie_jar])
+        _log("info", "Cookies after login: %s", [c.key for c in session.cookie_jar])
 
     async def _activate_meter_session(self, day: datetime) -> None:
         """Call GetDailyUsageData to activate the meter data session.
@@ -279,8 +279,8 @@ class UnionPowerAPI:
         body_text = json.dumps(body, separators=(",", ":")).replace('"', "'")
         url = f"{BASE_URL}/DesktopModules/MeterUsage/API/MeterData.aspx/GetIntervalData"
 
-        _log("debug", "POST %s body=%s", url, body_text)
-        _log("debug", "Cookies in jar: %s", [c.key for c in session.cookie_jar])
+        _log("info", "POST %s body=%s", url, body_text)
+        _log("info", "Cookies in jar: %s", [c.key for c in session.cookie_jar])
 
         async with session.post(
             url,
@@ -292,7 +292,7 @@ class UnionPowerAPI:
             },
         ) as resp:
             resp.raise_for_status()
-            _log("debug", "API response status=%d, set-cookies=%s", resp.status, list(resp.cookies.keys()))
+            _log("info", "API response status=%d, set-cookies=%s", resp.status, list(resp.cookies.keys()))
             raw = await resp.json()
 
         data = raw.get("d", raw)
@@ -310,7 +310,7 @@ class UnionPowerAPI:
                            json.dumps(data, default=str)[:300])
             return []
 
-        _log("debug", "Got %d items for %s", len(items), day.strftime("%Y-%m-%d"))
+        _log("info", "Got %d items for %s", len(items), day.strftime("%Y-%m-%d"))
         return [self._parse_interval_item(i) for i in items]
 
     @staticmethod
