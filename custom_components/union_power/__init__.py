@@ -14,6 +14,7 @@ import homeassistant.helpers.event as evt
 from .api import UnionPowerAPI
 from .sensor import UnionPowerDataUpdateCoordinator
 from .const import (
+    CONF_COST_PER_KWH,
     DOMAIN,
     POLL_INTERVAL_MINUTES,
 )
@@ -34,6 +35,17 @@ IMPORT_RANGE_SCHEMA = vol.Schema(
         vol.Required("end_date"): vol.All(str, vol.Length(min=10, max=10)),
     }
 )
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Migrate old config entry to new version."""
+    _log("info", "Migrating config from version %s", entry.version)
+    if entry.version == 1:
+        new_data = {**entry.data}
+        new_data[CONF_COST_PER_KWH] = None
+        hass.config_entries.async_update_entry(entry, version=2, data=new_data)
+    _log("info", "Migration to version %s complete", entry.version)
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

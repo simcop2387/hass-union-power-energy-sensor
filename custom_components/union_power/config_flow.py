@@ -20,17 +20,6 @@ from .exceptions import UnionPowerAuthenticationError, UnionPowerConnectionError
 _LOGGER = logging.getLogger(__name__)
 
 
-async def async_migrate_entry(hass, entry: config_entries.ConfigEntry):
-    """Migrate old config entry to new version."""
-    _LOGGER.info("Migrating Union Power config from version %s", entry.version)
-    if entry.version == 1:
-        new_data = {**entry.data}
-        new_data[CONF_COST_PER_KWH] = None
-        hass.config_entries.async_update_entry(entry, version=2, data=new_data)
-    _LOGGER.info("Migration to version %s successful", entry.version)
-    return True
-
-
 class UnionPowerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Union Power."""
 
