@@ -255,8 +255,9 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
         )
 
         async_add_external_statistics(self.hass, meta, new_stats)
+        last = new_stats[-1]
         _log("warning", "[UNION] fill_all_stats: rewrote %d stats with price (last sum=%.3f, last price=%.3f)",
-             len(new_stats), new_stats[-1].sum, new_stats[-1].price)
+             len(new_stats), last["sum"], last["price"])
         return len(new_stats)
 
     async def _get_last_stat(self, statistic_id: str) -> Optional[float]:
