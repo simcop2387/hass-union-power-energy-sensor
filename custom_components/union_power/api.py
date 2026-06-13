@@ -23,6 +23,9 @@ from .exceptions import (
 
 _LOGGER = logging.getLogger(__name__)
 
+def _log(level: int, msg: str, *args: Any) -> None:
+    getattr(_LOGGER, level)(f"[UNION] {msg}", *args)
+
 
 @dataclass
 class IntervalUsage:
@@ -112,7 +115,7 @@ class UnionPowerAPI:
         session = await self._get_session()
 
         # Step 1: GET login page to extract tokens
-        _LOGGER.debug("Fetching login page")
+        _log("debug", "Fetching login page")
         async with session.get(f"{BASE_URL}/Customer-Login") as resp:
             resp.raise_for_status()
             html = await resp.text()
@@ -131,7 +134,7 @@ class UnionPowerAPI:
                 missing.append("__EVENTVALIDATION")
             if not csrf:
                 missing.append("__RequestVerificationToken")
-            _LOGGER.error("Missing form tokens: %s", ", ".join(missing))
+            _log("error", "Missing form tokens: %s", ", ".join(missing))
             raise UnionPowerAuthenticationError(
                 f"Could not extract login form tokens from page (missing: {', '.join(missing)})"
             )
@@ -141,7 +144,7 @@ class UnionPowerAPI:
         csrftoken = csrf.get("value", "")
 
         # Step 2: POST credentials
-        _LOGGER.debug("Submitting login credentials")
+        _log("debug", "Submitting login credentials")
         payload = {
             "ScriptManager": "dnn$ctr384$CustomerLogin$UpdatePanel1|dnn$ctr384$CustomerLogin$btnLogin",
             "__LASTFOCUS": "",
@@ -177,13 +180,13 @@ class UnionPowerAPI:
             text = await resp.text()
 
         if "pageRedirect" not in text:
-            _LOGGER.error("Login POST returned no pageRedirect, response length: %d, first 500 chars: %s", len(text), text[:500])
+            _log("error", "Login POST returned no pageRedirect, response length: %d, first 500 chars: %s", len(text), text[:500])
             raise UnionPowerAuthenticationError(
                 "Login failed — no redirect in response. Check credentials."
             )
 
         # Step 3: Navigate redirect chain to establish full session
-        _LOGGER.debug("Following post-login redirect chain")
+        _log("debug", "Following post-login redirect chain")
         for path in (
             "/BillingPayments/tabid/42/Default.aspx",
             "/Billing-Payments",
@@ -193,7 +196,7 @@ class UnionPowerAPI:
                 resp.raise_for_status()
                 await resp.text()
 
-        _LOGGER.info("Successfully logged in to Union Power portal")
+        _log("info", "Successfully logged in to Union Power portal")
 
     async def get_interval_usage(
         self, start_date: datetime, end_date: datetime
@@ -207,26 +210,25 @@ class UnionPowerAPI:
         days_since_login = -1
         total_days = (end_date - start_date).days + 1
 
-        _LOGGER.info("Fetching interval data: %s → %s (%d days, keymbr=%s, MemberSep=%s)",
+        _log("info", "Fetching interval data: %s → %s (%d days, keymbr=%s, MemberSep=%s)",
                       start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"),
                       total_days, self.keymbr, self.member_sep)
 
         while current <= end_date:
             days_since_login += 1
             if days_since_login % 10 == 0:
-                _LOGGER.info("Re-authenticating (day %d/%d: %s)",
+                _log("info", "Re-authenticating (day %d/%d: %s)",
                              days_since_login, total_days, current.strftime("%Y-%m-%d"))
                 await self.login()
             records = await self._fetch_interval_day(current)
             all_records.extend(records)
             current += timedelta(days=1)
 
-        _LOGGER.info(
+        _log("info",
             "Fetched %d interval records for %s → %s",
             len(all_records),
             start_date.strftime("%Y-%m-%d"),
-            end_date.strftime("%Y-%m-%d"),
-        )
+            end_date.strftime("%Y-%m-%d"))
         return all_records
 
     async def _fetch_interval_day(self, day: datetime) -> List[IntervalUsage]:
@@ -243,7 +245,7 @@ class UnionPowerAPI:
         body_text = json.dumps(body, separators=(",", ":")).replace('"', "'")
         url = f"{BASE_URL}/DesktopModules/MeterUsage/API/MeterData.aspx/GetIntervalData"
 
-        _LOGGER.debug("POST %s body=%s", url, body_text)
+        _log("debug", "POST %s body=%s", url, body_text)
 
         async with session.post(
             url,
@@ -264,15 +266,15 @@ class UnionPowerAPI:
             error = data.get("errorObject", {})
             err_desc = error.get("errordesc", "")
             if err_desc:
-                _LOGGER.warning("API error for %s: %s", day.strftime("%Y-%m-%d"), err_desc)
-            _LOGGER.warning("No items for %s — keys: %s, __type: %s, full response sample: %s",
+                _log("warning", "API error for %s: %s", day.strftime("%Y-%m-%d"), err_desc)
+            _log("warning", "No items for %s — keys: %s, __type: %s, full response sample: %s",
                            day.strftime("%Y-%m-%d"),
                            list(data.keys()) if isinstance(data, dict) else type(data),
                            data.get("__type", "unknown") if isinstance(data, dict) else "not-dict",
                            json.dumps(data, default=str)[:300])
             return []
 
-        _LOGGER.debug("Got %d items for %s", len(items), day.strftime("%Y-%m-%d"))
+        _log("debug", "Got %d items for %s", len(items), day.strftime("%Y-%m-%d"))
         return [self._parse_interval_item(i) for i in items]
 
     @staticmethod

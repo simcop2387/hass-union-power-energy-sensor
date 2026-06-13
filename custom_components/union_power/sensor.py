@@ -65,6 +65,9 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+def _log(level: str, msg: str, *args: Any) -> None:
+    getattr(_LOGGER, level)(f"[UNION] {msg}", *args)
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -109,7 +112,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
         Called by background tasks, NOT by the coordinator's update loop.
         """
         try:
-            _LOGGER.debug("Running fetch cycle")
+            _log("debug", "Running fetch cycle")
             await self.api.login()
 
             now = datetime.now()
@@ -123,20 +126,20 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
 
             if last_stat is None:
                 start_date = end_date - timedelta(days=HISTORICAL_IMPORT_DAYS)
-                _LOGGER.info("Initial import: %s → %s (%d days)", start_date.date(), end_date.date(), HISTORICAL_IMPORT_DAYS)
+                _log("info", "Initial import: %s → %s (%d days)", start_date.date(), end_date.date(), HISTORICAL_IMPORT_DAYS)
             else:
                 start_date = datetime.fromtimestamp(last_stat, tz=timezone.utc).replace(
                     tzinfo=None
                 ) - timedelta(days=2)
                 if start_date >= end_date:
-                    _LOGGER.debug("No new data to fetch")
+                    _log("debug", "No new data to fetch")
                     return
-                _LOGGER.info("Incremental update: %s → %s", start_date.date(), end_date.date())
+                _log("info", "Incremental update: %s → %s", start_date.date(), end_date.date())
 
             records = await self.api.get_interval_usage(start_date, end_date)
 
             if not records:
-                _LOGGER.warning("No interval data returned for %s → %s", start_date.date(), end_date.date())
+                _log("warning", "No interval data returned for %s → %s", start_date.date(), end_date.date())
                 return
 
             await self._insert_statistics(records)
@@ -148,14 +151,14 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
                 ATTR_LAST_READING_TIME: last_reading_time,
                 ATTR_ACCOUNT_NUMBER: self.account_number,
             }
-            _LOGGER.info("Fetch cycle complete: %d records, %.3f kWh monthly", len(records), monthly_total)
+            _log("info", "Fetch cycle complete: %d records, %.3f kWh monthly", len(records), monthly_total)
 
         except (UnionPowerAuthenticationError, UnionPowerConnectionError) as e:
-            _LOGGER.error("Fetch cycle failed - authentication/connection: %s", e)
+            _log("error", "Fetch cycle failed - authentication/connection: %s", e)
         except UnionPowerError as e:
-            _LOGGER.error("Fetch cycle failed - API error: %s", e)
+            _log("error", "Fetch cycle failed - API error: %s", e)
         except Exception as e:
-            _LOGGER.exception("Fetch cycle failed - unexpected error: %s", e)
+            _log("exception", "Fetch cycle failed - unexpected error: %s", e)
 
     async def import_range(
         self, start_date: datetime, end_date: datetime
@@ -168,11 +171,11 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
         records = await self.api.get_interval_usage(start_date, end_date)
 
         if not records:
-            _LOGGER.warning("No data returned for range %s → %s", start_date.date(), end_date.date())
+            _log("warning", "No data returned for range %s → %s", start_date.date(), end_date.date())
             return 0
 
         await self._insert_statistics(records)
-        _LOGGER.info("Imported %d records for %s → %s", len(records), start_date.date(), end_date.date())
+        _log("info", "Imported %d records for %s → %s", len(records), start_date.date(), end_date.date())
         return len(records)
 
     async def _get_last_stat(self, statistic_id: str) -> Optional[float]:
@@ -290,19 +293,19 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
 
         # Insert into recorder
         if cons_hourly_stats:
-            _LOGGER.info("Adding %d hourly consumption statistics", len(cons_hourly_stats))
+            _log("info", "Adding %d hourly consumption statistics", len(cons_hourly_stats))
             async_add_external_statistics(self.hass, cons_hourly_meta, cons_hourly_stats)
 
         if cons_daily_stats:
-            _LOGGER.info("Adding %d daily consumption statistics", len(cons_daily_stats))
+            _log("info", "Adding %d daily consumption statistics", len(cons_daily_stats))
             async_add_external_statistics(self.hass, cons_daily_meta, cons_daily_stats)
 
         if ret_hourly_stats:
-            _LOGGER.info("Adding %d hourly return statistics", len(ret_hourly_stats))
+            _log("info", "Adding %d hourly return statistics", len(ret_hourly_stats))
             async_add_external_statistics(self.hass, ret_hourly_meta, ret_hourly_stats)
 
         if ret_daily_stats:
-            _LOGGER.info("Adding %d daily return statistics", len(ret_daily_stats))
+            _log("info", "Adding %d daily return statistics", len(ret_daily_stats))
             async_add_external_statistics(self.hass, ret_daily_meta, ret_daily_stats)
 
     @staticmethod

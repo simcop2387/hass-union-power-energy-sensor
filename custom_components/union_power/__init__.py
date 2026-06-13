@@ -19,6 +19,9 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+def _log(level: str, msg: str, *args) -> None:
+    getattr(_LOGGER, level)(f"[UNION] {msg}", *args)
+
 PLATFORMS = [Platform.SENSOR]
 
 SERVICE_IMPORT_RANGE = "import_range"
@@ -43,7 +46,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Test connection
     try:
         await api.login()
-        _LOGGER.info("Successfully connected to Union Power API")
+        _log("info", "Successfully connected to Union Power API")
     except Exception as e:
         await api.close()
         raise ConfigEntryError(f"Cannot connect to Union Power: {e}") from e
@@ -87,7 +90,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         coord: UnionPowerDataUpdateCoordinator = entry.runtime_data
         count = await coord.import_range(start, end)
-        _LOGGER.info("Service import_range: imported %d records", count)
+        _log("info", "Service import_range: imported %d records", count)
 
     hass.services.async_register(
         DOMAIN,
@@ -105,9 +108,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def _initial_fetch(hass: HomeAssistant, coordinator: UnionPowerDataUpdateCoordinator) -> None:
     """Run the initial data fetch in the background."""
-    _LOGGER.info("Starting initial background data fetch...")
+    _log("info", "Starting initial background data fetch...")
     await coordinator.run_fetch_cycle()
-    _LOGGER.info("Initial background data fetch complete")
+    _log("info", "Initial background data fetch complete")
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
