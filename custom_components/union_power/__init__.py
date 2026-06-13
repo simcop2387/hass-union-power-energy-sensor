@@ -14,8 +14,7 @@ from .api import UnionPowerAPI
 from .sensor import UnionPowerDataUpdateCoordinator
 from .const import (
     DOMAIN,
-    CONF_POLL_INTERVAL,
-    DEFAULT_POLL_INTERVAL,
+    POLL_INTERVAL_MINUTES,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -52,9 +51,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = UnionPowerDataUpdateCoordinator(
         hass=hass,
         api=api,
-        update_interval=timedelta(
-            minutes=config.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL)
-        ),
+        update_interval=timedelta(minutes=POLL_INTERVAL_MINUTES),
         config_entry=entry,
     )
 

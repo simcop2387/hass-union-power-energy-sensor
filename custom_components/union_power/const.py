@@ -7,10 +7,8 @@ CONF_ACCOUNT_NUMBER = "account_number"
 CONF_PASSWORD = "password"
 CONF_POLL_INTERVAL = "poll_interval"
 
-# Default values
-DEFAULT_POLL_INTERVAL = 360  # 6 hours in minutes
-MIN_POLL_INTERVAL = 60  # Minimum 1 hour
-MAX_POLL_INTERVAL = 1440  # Maximum 24 hours
+# Poll interval — locked to daily since data only updates once per day
+POLL_INTERVAL_MINUTES = 1440
 
 # API constants
 BASE_URL = "https://services.union-power.com/onlineportal"
