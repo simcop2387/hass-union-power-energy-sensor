@@ -179,6 +179,7 @@ class UnionPowerAPI:
         ) as resp:
             resp.raise_for_status()
             text = await resp.text()
+            _log("debug", "Login POST set-cookies: %s", list(resp.cookies.keys()))
 
         if "pageRedirect" not in text:
             _log("error", "Login POST returned no pageRedirect, response length: %d, first 500 chars: %s", len(text), text[:500])
@@ -198,6 +199,36 @@ class UnionPowerAPI:
                 await resp.text()
 
         _log("info", "Successfully logged in to Union Power portal")
+        _log("debug", "Cookies after login: %s", [c.key for c in session.cookie_jar])
+
+    async def _activate_meter_session(self, day: datetime) -> None:
+        """Call GetDailyUsageData to activate the meter data session.
+
+        The API requires this call before GetIntervalData will return data.
+        """
+        body = {
+            "keymbr": self.keymbr,
+            "MemberSep": self.member_sep,
+            "StartDate": day.strftime("%m/%d/%Y"),
+            "EndDate": day.strftime("%m/%d/%Y"),
+            "IsEnergy": "false",
+            "IsPPM": "false",
+            "IsCostEnable": "3",
+        }
+        session = await self._get_session()
+        body_text = json.dumps(body, separators=(",", ":")).replace('"', "'")
+
+        async with session.post(
+            f"{BASE_URL}/DesktopModules/MeterUsage/API/MeterData.aspx/GetDailyUsageData",
+            data=body_text,
+            headers={
+                "Content-Type": "application/json; charset=utf-8",
+                "X-Requested-With": "XMLHttpRequest",
+                "Referer": f"{BASE_URL}/My-Account/Usage-History",
+            },
+        ) as resp:
+            resp.raise_for_status()
+            await resp.json()
 
     async def get_interval_usage(
         self, start_date: datetime, end_date: datetime
@@ -221,6 +252,8 @@ class UnionPowerAPI:
                 _log("info", "Re-authenticating (day %d/%d: %s)",
                              days_since_login, total_days, current.strftime("%Y-%m-%d"))
                 await self.login()
+            # Activate meter session before fetching interval data
+            await self._activate_meter_session(current)
             records = await self._fetch_interval_day(current)
             all_records.extend(records)
             current += timedelta(days=1)
@@ -238,7 +271,7 @@ class UnionPowerAPI:
             "keymbr": self.keymbr,
             "MemberSep": self.member_sep,
             "StartDate": day.strftime("%m/%d/%Y"),
-            "EndDate": day.strftime("%m/%d/%Y"),
+            "EndDate": (day + timedelta(days=1)).strftime("%m/%d/%Y"),
             "IntervalType": "60",
         }
 
@@ -247,10 +280,11 @@ class UnionPowerAPI:
         url = f"{BASE_URL}/DesktopModules/MeterUsage/API/MeterData.aspx/GetIntervalData"
 
         _log("debug", "POST %s body=%s", url, body_text)
+        _log("debug", "Cookies in jar: %s", [c.key for c in session.cookie_jar])
 
         async with session.post(
             url,
-            content=body_text.encode("utf-8"),
+            data=body_text,
             headers={
                 "Content-Type": "application/json; charset=utf-8",
                 "X-Requested-With": "XMLHttpRequest",
