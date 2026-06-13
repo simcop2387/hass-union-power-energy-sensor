@@ -231,39 +231,35 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
 
         _log("warning", "fill_all_stats: found %d existing stats, creating cost stats", len(rows))
 
-        # Build hourly cost stats from consumption data
+        # Build hourly cost stats from consumption data (NOT cumulative)
         ha_tz = ZoneInfo(self.hass.config.time_zone)
         def _localize(dt: datetime) -> datetime:
             if dt.tzinfo is None:
                 return dt.replace(tzinfo=ha_tz)
             return dt
         cost_hourly: List[StatisticData] = []
-        cost_daily_map: Dict[str, Dict[str, float]] = {}
-        cost_sum = 0.0
+        cost_daily_map: Dict[str, float] = {}
 
         for row in rows:
             dt = datetime.fromtimestamp(row["start"], tz=timezone.utc).astimezone(ha_tz)
             s = row.get("sum", 0.0) or 0.0
             state = row.get("state", s) or 0.0
             cost_state = state * cost_per_kwh
-            cost_sum += cost_state
             cost_hourly.append(
-                StatisticData(start=dt, state=cost_state, sum=round(cost_sum, 6))
+                StatisticData(start=dt, state=cost_state)
             )
             # Accumulate daily cost
             day_key = dt.strftime("%Y-%m-%d")
             if day_key not in cost_daily_map:
-                cost_daily_map[day_key] = {"sum": 0.0}
-            cost_daily_map[day_key]["sum"] += cost_state
+                cost_daily_map[day_key] = 0.0
+            cost_daily_map[day_key] += cost_state
 
-        # Build daily cost stats
+        # Build daily cost stats (NOT cumulative)
         cost_daily: List[StatisticData] = []
-        daily_cumulative = 0.0
         for day_key in sorted(cost_daily_map.keys()):
             dt = _localize(datetime.strptime(day_key, "%Y-%m-%d"))
-            daily_cumulative += cost_daily_map[day_key]["sum"]
             cost_daily.append(
-                StatisticData(start=dt, state=cost_daily_map[day_key]["sum"], sum=round(daily_cumulative, 6))
+                StatisticData(start=dt, state=cost_daily_map[day_key])
             )
 
         # Insert hourly cost stats
@@ -407,9 +403,8 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
                 StatisticData(start=dt, state=rec.used_from_grid, sum=cons_sum)
             )
             if cost_per_kwh:
-                cost_sum = round(cons_sum * cost_per_kwh, 6)
                 cost_hourly_stats.append(
-                    StatisticData(start=dt, state=rec.used_from_grid * cost_per_kwh, sum=cost_sum)
+                    StatisticData(start=dt, state=rec.used_from_grid * cost_per_kwh)
                 )
 
         # Build daily consumption stats (cumulative)
@@ -424,9 +419,8 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
                 StatisticData(start=dt, state=day_total, sum=cons_daily_sum)
             )
             if cost_per_kwh:
-                cost_daily_sum = round(cons_daily_sum * cost_per_kwh, 6)
                 cost_daily_stats.append(
-                    StatisticData(start=dt, state=day_total * cost_per_kwh, sum=cost_daily_sum)
+                    StatisticData(start=dt, state=day_total * cost_per_kwh)
                 )
 
         # Build hourly return stats
