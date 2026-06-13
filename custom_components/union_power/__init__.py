@@ -76,6 +76,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     entry.async_on_unload(
         evt.async_track_time_change(
+            hass,
             _scheduled_fetch,
             hour=6,
             minute=0,
