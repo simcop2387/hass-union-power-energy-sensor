@@ -1,0 +1,43 @@
+{
+  "title": "Union Power Energy",
+  "config": {
+    "step": {
+      "user": {
+        "data": {
+          "account_number": "Account Number",
+          "password": "Password",
+          "poll_interval": "Poll Interval (minutes)"
+        },
+        "data_description": {
+          "account_number": "Your Union Power account number (e.g. 5497637001)",
+          "password": "Your Union Power portal password",
+          "poll_interval": "How often to check for new data (60-1440 minutes)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to Union Power. Please check your network connection.",
+      "invalid_auth": "Invalid credentials. Please check your account number and password.",
+      "unknown": "Unexpected error occurred. Please check the logs."
+    },
+    "abort": {
+      "already_configured": "Union Power integration is already configured for this account."
+    }
+  },
+  "services": {
+    "import_range": {
+      "name": "Import Usage Range",
+      "description": "Import historical usage data for a custom date range",
+      "fields": {
+        "start_date": {
+          "name": "Start Date",
+          "description": "Start date in YYYY-MM-DD format"
+        },
+        "end_date": {
+          "name": "End Date",
+          "description": "End date in YYYY-MM-DD format"
+        }
+      }
+    }
+  }
+}
