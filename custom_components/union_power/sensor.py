@@ -51,8 +51,6 @@ from .exceptions import (
 from .const import (
     DOMAIN,
     CONF_ACCOUNT_NUMBER,
-    CONF_POLL_INTERVAL,
-    DEFAULT_POLL_INTERVAL,
     DATA_LAG_DAYS,
     HISTORICAL_IMPORT_DAYS,
     ENERGY_SENSOR_KEY,
