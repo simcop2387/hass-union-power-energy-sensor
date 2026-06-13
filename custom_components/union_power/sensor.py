@@ -168,15 +168,18 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
 
         Returns number of records imported.
         """
+        _log("warning", "[UNION] import_range starting: %s → %s", start_date.date(), end_date.date())
         await self.api.login()
+        _log("warning", "[UNION] import_range login OK, fetching data...")
         records = await self.api.get_interval_usage(start_date, end_date)
+        _log("warning", "[UNION] import_range got %d records", len(records))
 
         if not records:
             _log("warning", "No data returned for range %s → %s", start_date.date(), end_date.date())
             return 0
 
         await self._insert_statistics(records)
-        _log("info", "Imported %d records for %s → %s", len(records), start_date.date(), end_date.date())
+        _log("warning", "[UNION] import_range inserted %d records for %s → %s", len(records), start_date.date(), end_date.date())
         return len(records)
 
     async def _get_last_stat(self, statistic_id: str) -> Optional[float]:
@@ -316,6 +319,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
         if ret_daily_stats:
             _log("info", "Adding %d daily return statistics", len(ret_daily_stats))
             async_add_external_statistics(self.hass, ret_daily_meta, ret_daily_stats)
+        _log("warning", "[UNION] _insert_statistics complete")
 
     @staticmethod
     def _compute_monthly(records: List[IntervalUsage]) -> tuple[float, str]:

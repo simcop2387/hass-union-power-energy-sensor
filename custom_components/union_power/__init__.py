@@ -89,10 +89,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         """Handle the import_range service call."""
         start = datetime.strptime(call.data["start_date"], "%Y-%m-%d")
         end = datetime.strptime(call.data["end_date"], "%Y-%m-%d")
-
+        _log("warning", "[UNION] Service import_range called: %s → %s", start.date(), end.date())
         coord: UnionPowerDataUpdateCoordinator = entry.runtime_data
         count = await coord.import_range(start, end)
-        _log("info", "Service import_range: imported %d records", count)
+        _log("warning", "[UNION] Service import_range done: %d records", count)
 
     hass.services.async_register(
         DOMAIN,
