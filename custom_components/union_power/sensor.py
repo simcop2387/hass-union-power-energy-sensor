@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from typing import Any, Dict, List, Optional
 
 from homeassistant.components.recorder.statistics import (
@@ -249,11 +250,19 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
             unit_of_measurement=cons_unit,
         )
 
+        # Localize naive datetimes to HA timezone
+        ha_tz = ZoneInfo(self.hass.config.time_zone)
+
+        def _localize(dt: datetime) -> datetime:
+            if dt.tzinfo is None:
+                return dt.replace(tzinfo=ha_tz)
+            return dt
+
         # Build hourly consumption stats (cumulative)
         cons_sum = 0.0
         cons_hourly_stats: List[StatisticData] = []
         for rec in hourly_consumption:
-            dt = self.api.parse_timestamp(rec.timestamp)
+            dt = _localize(self.api.parse_timestamp(rec.timestamp))
             cons_sum += rec.used_from_grid
             cons_hourly_stats.append(
                 StatisticData(start=dt, state=rec.used_from_grid, sum=cons_sum)
@@ -263,7 +272,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
         cons_daily_sum = 0.0
         cons_daily_stats: List[StatisticData] = []
         for day_key in sorted(daily.keys()):
-            dt = datetime.strptime(day_key, "%m/%d/%Y")
+            dt = _localize(datetime.strptime(day_key, "%m/%d/%Y"))
             day_total = daily[day_key]["consumption"]
             cons_daily_sum += day_total
             cons_daily_stats.append(
@@ -274,7 +283,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
         ret_sum = 0.0
         ret_hourly_stats: List[StatisticData] = []
         for rec in hourly_return:
-            dt = self.api.parse_timestamp(rec.timestamp)
+            dt = _localize(self.api.parse_timestamp(rec.timestamp))
             ret_sum += rec.total_generation
             ret_hourly_stats.append(
                 StatisticData(start=dt, state=rec.total_generation, sum=ret_sum)
@@ -284,7 +293,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
         ret_daily_sum = 0.0
         ret_daily_stats: List[StatisticData] = []
         for day_key in sorted(daily.keys()):
-            dt = datetime.strptime(day_key, "%m/%d/%Y")
+            dt = _localize(datetime.strptime(day_key, "%m/%d/%Y"))
             day_total = daily[day_key]["return"]
             ret_daily_sum += day_total
             ret_daily_stats.append(
