@@ -250,7 +250,7 @@ class UnionPowerAPI:
 
         async with session.post(
             url,
-            data=body_text,
+            content=body_text.encode("utf-8"),
             headers={
                 "Content-Type": "application/json; charset=utf-8",
                 "X-Requested-With": "XMLHttpRequest",
