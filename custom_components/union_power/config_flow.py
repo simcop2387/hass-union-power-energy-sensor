@@ -12,7 +12,10 @@ from .const import (
     DOMAIN,
     CONF_ACCOUNT_NUMBER,
     CONF_PASSWORD,
-    CONF_COST_PER_KWH,
+    CONF_SUMMER_RATE_TIER1,
+    CONF_SUMMER_RATE_TIER2,
+    CONF_WINTER_RATE_TIER1,
+    CONF_WINTER_RATE_TIER2,
 )
 from .api import UnionPowerAPI
 from .exceptions import UnionPowerAuthenticationError, UnionPowerConnectionError
@@ -23,7 +26,7 @@ _LOGGER = logging.getLogger(__name__)
 class UnionPowerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Union Power."""
 
-    VERSION = 2
+    VERSION = 3
     MINOR_VERSION = 1
 
     async def async_step_user(
@@ -56,7 +59,10 @@ class UnionPowerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             {
                 vol.Required(CONF_ACCOUNT_NUMBER): str,
                 vol.Required(CONF_PASSWORD): str,
-                vol.Optional(CONF_COST_PER_KWH, default=None): vol.Any(None, vol.Coerce(float)),
+                vol.Optional(CONF_SUMMER_RATE_TIER1, default=None): vol.Any(None, vol.Coerce(float)),
+                vol.Optional(CONF_SUMMER_RATE_TIER2, default=None): vol.Any(None, vol.Coerce(float)),
+                vol.Optional(CONF_WINTER_RATE_TIER1, default=None): vol.Any(None, vol.Coerce(float)),
+                vol.Optional(CONF_WINTER_RATE_TIER2, default=None): vol.Any(None, vol.Coerce(float)),
             }
         )
 

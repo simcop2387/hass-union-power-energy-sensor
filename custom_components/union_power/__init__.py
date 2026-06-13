@@ -14,10 +14,16 @@ import homeassistant.helpers.event as evt
 from .api import UnionPowerAPI
 from .sensor import UnionPowerDataUpdateCoordinator
 from .const import (
-    CONF_COST_PER_KWH,
+    CONF_SUMMER_RATE_TIER1,
+    CONF_SUMMER_RATE_TIER2,
+    CONF_WINTER_RATE_TIER1,
+    CONF_WINTER_RATE_TIER2,
     DOMAIN,
     POLL_INTERVAL_MINUTES,
 )
+
+# Legacy config key for migration
+_CONF_COST_PER_KWH = "cost_per_kwh"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -42,8 +48,26 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _log("info", "Migrating config from version %s", entry.version)
     if entry.version == 1:
         new_data = {**entry.data}
-        new_data[CONF_COST_PER_KWH] = None
+        new_data[CONF_SUMMER_RATE_TIER1] = None
+        new_data[CONF_SUMMER_RATE_TIER2] = None
+        new_data[CONF_WINTER_RATE_TIER1] = None
+        new_data[CONF_WINTER_RATE_TIER2] = None
         hass.config_entries.async_update_entry(entry, version=2, data=new_data)
+    if entry.version == 2:
+        old_cost = entry.data.get(_CONF_COST_PER_KWH)
+        new_data = {**entry.data}
+        if old_cost is not None:
+            _log("info", "Migrating cost_per_kwh (%s) to seasonal rates", old_cost)
+            new_data[CONF_SUMMER_RATE_TIER1] = old_cost
+            new_data[CONF_SUMMER_RATE_TIER2] = old_cost
+            new_data[CONF_WINTER_RATE_TIER1] = old_cost
+            new_data[CONF_WINTER_RATE_TIER2] = old_cost
+        else:
+            new_data[CONF_SUMMER_RATE_TIER1] = None
+            new_data[CONF_SUMMER_RATE_TIER2] = None
+            new_data[CONF_WINTER_RATE_TIER1] = None
+            new_data[CONF_WINTER_RATE_TIER2] = None
+        hass.config_entries.async_update_entry(entry, version=3, data=new_data)
     _log("info", "Migration to version %s complete", entry.version)
     return True
 
@@ -57,7 +81,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         password=config["password"],
     )
 
-    # Test connection
     try:
         await api.login()
         _log("info", "Successfully connected to Union Power API")
@@ -72,18 +95,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         config_entry=entry,
     )
 
-    # Don't block startup — coordinator returns empty data immediately
     entry.runtime_data = coordinator
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # Schedule initial fetch as background task (does not block startup)
     hass.async_create_task(
         _initial_fetch(hass, coordinator),
         name="union_power_initial_fetch",
     )
 
-    # Schedule daily recurring fetch
     async def _scheduled_fetch(_: datetime) -> None:
         await coordinator.run_fetch_cycle()
 
@@ -97,7 +117,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
     )
 
-    # Register import_range service
     async def handle_import_range(call: ServiceCall) -> None:
         """Handle the import_range service call."""
         start = datetime.strptime(call.data["start_date"], "%Y-%m-%d")
@@ -118,7 +137,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         lambda: hass.services.async_remove(DOMAIN, SERVICE_IMPORT_RANGE)
     )
 
-    # Register fill_all_stats service
     async def handle_fill_all_stats(call: ServiceCall) -> None:
         """Handle the fill_all_stats service call."""
         _log("warning", "Service fill_all_stats called")

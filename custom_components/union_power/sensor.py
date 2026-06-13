@@ -56,7 +56,12 @@ from .const import (
     BASE_URL,
     DOMAIN,
     CONF_ACCOUNT_NUMBER,
-    CONF_COST_PER_KWH,
+    CONF_SUMMER_RATE_TIER1,
+    CONF_SUMMER_RATE_TIER2,
+    CONF_WINTER_RATE_TIER1,
+    CONF_WINTER_RATE_TIER2,
+    SUMMER_MONTHS,
+    TIER_THRESHOLD_KWH,
     DATA_LAG_DAYS,
     HISTORICAL_IMPORT_DAYS,
     ENERGY_SENSOR_KEY,
@@ -74,6 +79,59 @@ _LOGGER = logging.getLogger(__name__)
 
 def _log(level: str, msg: str, *args: Any) -> None:
     getattr(_LOGGER, level)(msg, *args)
+
+
+def _calculate_cost(
+    kwh: float,
+    cumulative_before: float,
+    month: int,
+    rates: Dict[str, float],
+) -> float:
+    """Calculate cost for a single kWh increment using seasonal tiered rates.
+
+    Args:
+        kwh: kWh consumed in this interval
+        cumulative_before: total kWh consumed in this month before this interval
+        month: calendar month (1-12)
+        rates: dict with CONF_SUMMER_RATE_TIER1, CONF_SUMMER_RATE_TIER2,
+               CONF_WINTER_RATE_TIER1, CONF_WINTER_RATE_TIER2
+
+    Returns:
+        Cost in USD for this interval
+    """
+    if month in SUMMER_MONTHS:
+        tier1 = rates.get(CONF_SUMMER_RATE_TIER1)
+        tier2 = rates.get(CONF_SUMMER_RATE_TIER2)
+    else:
+        tier1 = rates.get(CONF_WINTER_RATE_TIER1)
+        tier2 = rates.get(CONF_WINTER_RATE_TIER2)
+
+    if tier1 is None:
+        return 0.0
+
+    remaining_tier1 = max(0.0, TIER_THRESHOLD_KWH - cumulative_before)
+
+    if remaining_tier1 <= 0:
+        kwh_tier2 = kwh
+        kwh_tier1 = 0.0
+    else:
+        kwh_tier1 = min(kwh, remaining_tier1)
+        kwh_tier2 = kwh - kwh_tier1
+
+    cost = kwh_tier1 * tier1
+    if tier2 is not None and kwh_tier2 > 0:
+        cost += kwh_tier2 * tier2
+
+    return cost
+
+
+def _rates_configured(rates: Dict[str, float]) -> bool:
+    """Return True if at least one rate is configured."""
+    return any(
+        rates.get(k) is not None
+        for k in (CONF_SUMMER_RATE_TIER1, CONF_SUMMER_RATE_TIER2,
+                   CONF_WINTER_RATE_TIER1, CONF_WINTER_RATE_TIER2)
+    )
 
 
 async def async_setup_entry(
@@ -108,16 +166,19 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
         )
         self.api = api
         self.account_number = config_entry.data.get(CONF_ACCOUNT_NUMBER, "unknown")
+        self.rates = {
+            CONF_SUMMER_RATE_TIER1: config_entry.data.get(CONF_SUMMER_RATE_TIER1),
+            CONF_SUMMER_RATE_TIER2: config_entry.data.get(CONF_SUMMER_RATE_TIER2),
+            CONF_WINTER_RATE_TIER1: config_entry.data.get(CONF_WINTER_RATE_TIER1),
+            CONF_WINTER_RATE_TIER2: config_entry.data.get(CONF_WINTER_RATE_TIER2),
+        }
 
     async def _async_update_data(self) -> Dict[str, Any]:
         """Return stored data. Fetching is done by background tasks, not here."""
         return self.data or {}
 
     async def run_fetch_cycle(self) -> None:
-        """Run a full fetch cycle: login, fetch, insert stats, update coordinator data.
-
-        Called by background tasks, NOT by the coordinator's update loop.
-        """
+        """Run a full fetch cycle: login, fetch, insert stats, update coordinator data."""
         try:
             _log("info", "Running fetch cycle")
             await self.api.login()
@@ -149,8 +210,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
                 _log("warning", "No interval data returned for %s → %s", start_date.date(), end_date.date())
                 return
 
-            cost_per_kwh = self.config_entry.data.get(CONF_COST_PER_KWH)
-            await self._insert_statistics(records, cost_per_kwh=cost_per_kwh)
+            await self._insert_statistics(records)
 
             monthly_total, last_reading_time = self._compute_monthly(records)
 
@@ -171,10 +231,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
     async def import_range(
         self, start_date: datetime, end_date: datetime
     ) -> int:
-        """Manually import data for a custom date range.
-
-        Returns number of records imported.
-        """
+        """Manually import data for a custom date range."""
         _log("warning", "import_range starting: %s → %s", start_date.date(), end_date.date())
         await self.api.login()
         _log("warning", "import_range login OK, fetching data...")
@@ -185,34 +242,25 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
             _log("warning", "No data returned for range %s → %s", start_date.date(), end_date.date())
             return 0
 
-        cost_per_kwh = self.config_entry.data.get(CONF_COST_PER_KWH)
-        await self._insert_statistics(records, cost_per_kwh=cost_per_kwh)
+        await self._insert_statistics(records)
         _log("warning", "import_range inserted %d records for %s → %s", len(records), start_date.date(), end_date.date())
         return len(records)
 
     async def fill_all_stats(self) -> int:
-        """Create cost statistics from all existing consumption data.
-
-        Reads all existing hourly consumption stats from the recorder and
-        creates matching hourly/daily cost stats if cost_per_kwh is configured.
-        Returns number of cost records created.
-        """
-        cost_per_kwh = self.config_entry.data.get(CONF_COST_PER_KWH)
-        if not cost_per_kwh:
-            _log("warning", "fill_all_stats: cost_per_kwh not configured (value=%s), nothing to do", cost_per_kwh)
+        """Create cost statistics from all existing consumption data."""
+        if not _rates_configured(self.rates):
+            _log("warning", "fill_all_stats: no rates configured, nothing to do")
             return 0
 
-        _log("warning", "fill_all_stats: cost_per_kwh = %s", cost_per_kwh)
+        _log("warning", "fill_all_stats: rates = %s", self.rates)
 
         stat_id = STAT_CONSUMPTION_HOURLY.format(account=self.account_number)
 
-        # Use a far-past start date — get_start_time() only returns current session start
         start_time = datetime(2020, 1, 1, tzinfo=timezone.utc)
         end_time = datetime.now(tz=timezone.utc)
 
         _log("warning", "fill_all_stats: reading stats from %s to %s", start_time, end_time)
 
-        # Read all existing hourly stats
         stats = await self.hass.async_add_executor_job(
             statistics_during_period,
             self.hass,
@@ -231,20 +279,26 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
 
         _log("warning", "fill_all_stats: found %d existing stats, creating cost stats", len(rows))
 
-        # Build hourly cost stats from consumption data
         ha_tz = ZoneInfo(self.hass.config.time_zone)
         def _localize(dt: datetime) -> datetime:
             if dt.tzinfo is None:
                 return dt.replace(tzinfo=ha_tz)
             return dt
+
         cost_hourly: List[StatisticData] = []
         cost_daily_map: Dict[str, float] = {}
+        monthly_cumulative: Dict[str, float] = {}
 
         for row in rows:
             dt = datetime.fromtimestamp(row["start"], tz=timezone.utc).astimezone(ha_tz)
             s = row.get("sum", 0.0) or 0.0
             state = row.get("state", s) or 0.0
-            cost_state = state * cost_per_kwh
+
+            month_key = dt.strftime("%Y-%m")
+            cumulative_before = monthly_cumulative.get(month_key, 0.0)
+            cost_state = _calculate_cost(state, cumulative_before, dt.month, self.rates)
+            monthly_cumulative[month_key] = cumulative_before + state
+
             cost_hourly.append(
                 StatisticData(start=dt, state=cost_state, sum=cost_state)
             )
@@ -253,7 +307,6 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
                 cost_daily_map[day_key] = 0.0
             cost_daily_map[day_key] += cost_state
 
-        # Build daily cost stats
         cost_daily: List[StatisticData] = []
         for day_key in sorted(cost_daily_map.keys()):
             dt = _localize(datetime.strptime(day_key, "%Y-%m-%d"))
@@ -261,7 +314,6 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
                 StatisticData(start=dt, state=cost_daily_map[day_key], sum=cost_daily_map[day_key])
             )
 
-        # Insert hourly cost stats
         cost_hourly_meta = StatisticMetaData(
             mean_type=StatisticMeanType.NONE,
             has_sum=True,
@@ -274,7 +326,6 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
         async_add_external_statistics(self.hass, cost_hourly_meta, cost_hourly)
         _log("warning", "fill_all_stats: created %d hourly cost stats", len(cost_hourly))
 
-        # Insert daily cost stats
         cost_daily_meta = StatisticMetaData(
             mean_type=StatisticMeanType.NONE,
             has_sum=True,
@@ -298,15 +349,14 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
             return last_stat[statistic_id][0].get("start")
         return None
 
-    async def _insert_statistics(self, records: List[IntervalUsage], cost_per_kwh: Optional[float] = None) -> None:
+    async def _insert_statistics(self, records: List[IntervalUsage]) -> None:
         """Insert hourly and daily statistics into the HA recorder."""
-        # Group by day
         daily: Dict[str, Dict[str, float]] = {}
         hourly_consumption: List[IntervalUsage] = []
         hourly_return: List[IntervalUsage] = []
 
         for rec in records:
-            day_key = rec.timestamp[:10]  # "MM/DD/YYYY"
+            day_key = rec.timestamp[:10]
             if day_key not in daily:
                 daily[day_key] = {"consumption": 0.0, "return": 0.0}
             daily[day_key]["consumption"] += rec.used_from_grid
@@ -316,7 +366,6 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
             if rec.total_generation > 0:
                 hourly_return.append(rec)
 
-        # Build stat metadata
         cons_unit_class = EnergyConverter.UNIT_CLASS
         cons_unit = UnitOfEnergy.KILO_WATT_HOUR
 
@@ -360,10 +409,9 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
             unit_of_measurement=cons_unit,
         )
 
-        # Separate cost stats (if cost_per_kwh is configured)
         cost_hourly_meta = None
         cost_daily_meta = None
-        if cost_per_kwh:
+        if _rates_configured(self.rates):
             cost_hourly_meta = StatisticMetaData(
                 mean_type=StatisticMeanType.NONE,
                 has_sum=True,
@@ -383,7 +431,6 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
                 unit_of_measurement="USD",
             )
 
-        # Localize naive datetimes to HA timezone
         ha_tz = ZoneInfo(self.hass.config.time_zone)
 
         def _localize(dt: datetime) -> datetime:
@@ -391,21 +438,31 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
                 return dt.replace(tzinfo=ha_tz)
             return dt
 
+        # Track cumulative kWh per month for tiered pricing (hourly)
+        hourly_cumulative: Dict[str, float] = {}
+
         # Build hourly consumption stats (cumulative)
         cons_sum = 0.0
         cons_hourly_stats: List[StatisticData] = []
         cost_hourly_stats: List[StatisticData] = []
+        hourly_cost_by_day: Dict[str, float] = {}
         for rec in hourly_consumption:
             dt = _localize(self.api.parse_timestamp(rec.timestamp))
+            month_key = dt.strftime("%Y-%m")
+            day_key = rec.timestamp[:10]
+            cumulative_before = hourly_cumulative.get(month_key, 0.0)
+
             cons_sum += rec.used_from_grid
             cons_hourly_stats.append(
                 StatisticData(start=dt, state=rec.used_from_grid, sum=cons_sum)
             )
-            if cost_per_kwh:
-                cost_state = rec.used_from_grid * cost_per_kwh
+            if _rates_configured(self.rates):
+                cost_state = _calculate_cost(rec.used_from_grid, cumulative_before, dt.month, self.rates)
                 cost_hourly_stats.append(
                     StatisticData(start=dt, state=cost_state, sum=cost_state)
                 )
+                hourly_cost_by_day[day_key] = hourly_cost_by_day.get(day_key, 0.0) + cost_state
+            hourly_cumulative[month_key] = cumulative_before + rec.used_from_grid
 
         # Build daily consumption stats (cumulative)
         cons_daily_sum = 0.0
@@ -418,10 +475,9 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
             cons_daily_stats.append(
                 StatisticData(start=dt, state=day_total, sum=cons_daily_sum)
             )
-            if cost_per_kwh:
-                cost_state = day_total * cost_per_kwh
+            if _rates_configured(self.rates):
                 cost_daily_stats.append(
-                    StatisticData(start=dt, state=cost_state, sum=cost_state)
+                    StatisticData(start=dt, state=hourly_cost_by_day.get(day_key, 0.0), sum=hourly_cost_by_day.get(day_key, 0.0))
                 )
 
         # Build hourly return stats

@@ -5,7 +5,18 @@ DOMAIN = "union_power"
 # Configuration keys
 CONF_ACCOUNT_NUMBER = "account_number"
 CONF_PASSWORD = "password"
-CONF_COST_PER_KWH = "cost_per_kwh"
+
+# Seasonal tiered pricing
+CONF_SUMMER_RATE_TIER1 = "summer_rate_tier1"
+CONF_SUMMER_RATE_TIER2 = "summer_rate_tier2"
+CONF_WINTER_RATE_TIER1 = "winter_rate_tier1"
+CONF_WINTER_RATE_TIER2 = "winter_rate_tier2"
+
+# Tier threshold (kWh per month)
+TIER_THRESHOLD_KWH = 1000
+
+# Summer billing months: June (6) through October (10)
+SUMMER_MONTHS = {6, 7, 8, 9, 10}
 
 # Poll interval — locked to daily since data only updates once per day
 POLL_INTERVAL_MINUTES = 1440

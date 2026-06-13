@@ -6,12 +6,18 @@
         "data": {
           "account_number": "Account Number",
           "password": "Password",
-          "cost_per_kwh": "Cost per kWh"
+          "summer_rate_tier1": "Summer Rate — First 1000 kWh",
+          "summer_rate_tier2": "Summer Rate — After 1000 kWh",
+          "winter_rate_tier1": "Winter Rate — First 1000 kWh",
+          "winter_rate_tier2": "Winter Rate — After 1000 kWh"
         },
         "data_description": {
           "account_number": "Your Union Power account number (e.g. 5497637001)",
           "password": "Your Union Power portal password",
-          "cost_per_kwh": "Optional — enables cost tracking in the Energy Dashboard (e.g. 0.12 for 12¢/kWh)"
+          "summer_rate_tier1": "Optional — summer rate (Jun-Oct) for first 1000 kWh per month (e.g. 0.105776)",
+          "summer_rate_tier2": "Optional — summer rate (Jun-Oct) for usage over 1000 kWh per month",
+          "winter_rate_tier1": "Optional — winter rate (Nov-May) for first 1000 kWh per month",
+          "winter_rate_tier2": "Optional — winter rate (Nov-May) for usage over 1000 kWh per month"
         }
       }
     },
@@ -41,7 +47,7 @@
     },
     "fill_all_stats": {
       "name": "Fill All Statistics",
-      "description": "Rewrite price data on all existing statistics (requires cost_per_kwh to be set)"
+      "description": "Create cost statistics from all existing consumption data (requires rate fields to be set)"
     }
   }
 }
