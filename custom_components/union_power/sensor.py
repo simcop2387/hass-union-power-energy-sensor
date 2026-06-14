@@ -299,7 +299,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
 
         Extracts per-period from consecutive differences, rebuilds cumulative from new boundary.
         """
-        stats = await self.hass.async_add_executor_job(
+        stats = await get_instance(self.hass).async_add_executor_job(
             statistics_during_period,
             self.hass,
             cutoff,
@@ -365,7 +365,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
 
         _log("warning", "fill_all_stats: reading stats from %s to %s", start_time, end_time)
 
-        stats = await self.hass.async_add_executor_job(
+        stats = await get_instance(self.hass).async_add_executor_job(
             statistics_during_period,
             self.hass,
             start_time,
@@ -464,7 +464,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
         cumulative_sum_at_query_start is the sum from the row matching query_start,
         or the last stat's sum if no overlap found.
         """
-        last_stat = await self.hass.async_add_executor_job(
+        last_stat = await get_instance(self.hass).async_add_executor_job(
             get_last_statistics,
             self.hass,
             1,
@@ -483,7 +483,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
         _log("warning", "_get_last_stat_with_sum[%s]: last stat ts=%s sum=%.4f", statistic_id, last_ts, last_sum)
 
         # Query at the start of our API data to find the overlapping row's cumulative sum
-        stats = await self.hass.async_add_executor_job(
+        stats = await get_instance(self.hass).async_add_executor_job(
             statistics_during_period,
             self.hass,
             query_start,
