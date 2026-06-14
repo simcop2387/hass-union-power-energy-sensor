@@ -184,11 +184,12 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
             await self.api.login()
             _log("warning", "Login successful")
 
-            now = datetime.now()
+            ha_tz = ZoneInfo(self.hass.config.time_zone)
+            now = datetime.now(tz=ha_tz)
             end_date = (now - timedelta(days=DATA_LAG_DAYS)).replace(
                 hour=0, minute=0, second=0, microsecond=0
             )
-            _log("warning", "Data window: now=%s, end_date=%s (lag=%d days)", now.date(), end_date.date(), DATA_LAG_DAYS)
+            _log("warning", "Data window: now=%s, end_date=%s (lag=%d days, tz=%s)", now.date(), end_date.date(), DATA_LAG_DAYS, ha_tz)
 
             last_stat = await self._get_last_nonzero_stat(
                 STAT_CONSUMPTION_HOURLY.format(account=self.account_number)
@@ -199,9 +200,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
                 start_date = end_date - timedelta(days=HISTORICAL_IMPORT_DAYS)
                 _log("warning", "No prior stats found — initial import: %s → %s (%d days)", start_date.date(), end_date.date(), HISTORICAL_IMPORT_DAYS)
             else:
-                start_date = datetime.fromtimestamp(last_stat, tz=timezone.utc).replace(
-                    tzinfo=None
-                )
+                start_date = datetime.fromtimestamp(last_stat, tz=ha_tz)
                 _log("warning", "Incremental window: last_stat=%s, start_date=%s, end_date=%s", last_stat, start_date.date(), end_date.date())
                 if start_date > end_date:
                     _log("warning", "No new data to fetch: start_date (%s) > end_date (%s)", start_date.date(), end_date.date())
@@ -209,7 +208,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
                 _log("warning", "Incremental update: %s → %s", start_date.date(), end_date.date())
 
             _log("warning", "Fetching interval data: %s → %s", start_date.date(), end_date.date())
-            records = await self.api.get_interval_usage(start_date, end_date)
+            records = await self.api.get_interval_usage(start_date.replace(tzinfo=None), end_date.replace(tzinfo=None))
             _log("warning", "API returned %d records", len(records))
 
             if not records:
