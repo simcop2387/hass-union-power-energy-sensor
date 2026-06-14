@@ -214,18 +214,23 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
                 return
 
             _log("warning", "Inserting statistics for %d records", len(records))
+            for i, rec in enumerate(records[:3]):
+                _log("warning", "API record[%d]: ts=%s KWH=%.4f GKWH=%.4f", i, rec.timestamp, rec.used_from_grid, rec.total_generation)
+            if len(records) > 3:
+                for i in range(len(records) - 3, len(records)):
+                    _log("warning", "API record[%d]: ts=%s KWH=%.4f GKWH=%.4f", i, records[i].timestamp, records[i].used_from_grid, records[i].total_generation)
             await self._insert_statistics(records)
             _log("warning", "Statistics inserted successfully")
 
             monthly_total, last_reading_time = self._compute_monthly(records)
-            _log("warning", "Monthly total: %.3f kWh, last reading: %s", monthly_total, last_reading_time)
+            _log("warning", "Last reading: %s, month-to-date: %.3f kWh", last_reading_time, monthly_total)
 
             self.data = {
                 ENERGY_SENSOR_KEY: monthly_total,
                 ATTR_LAST_READING_TIME: last_reading_time,
                 ATTR_ACCOUNT_NUMBER: self.account_number,
             }
-            _log("warning", "Fetch cycle complete: %d records, %.3f kWh monthly", len(records), monthly_total)
+            _log("warning", "Fetch cycle complete: %d records, last reading: %s", len(records), last_reading_time)
 
         except (UnionPowerAuthenticationError, UnionPowerConnectionError) as e:
             _log("error", "Fetch cycle failed - authentication/connection: %s", e)
@@ -297,13 +302,12 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
 
         for row in rows:
             dt = datetime.fromtimestamp(row["start"], tz=timezone.utc).astimezone(ha_tz)
-            s = row.get("sum", 0.0) or 0.0
-            state = row.get("state", s) or 0.0
+            kwh = row.get("sum", 0.0) or 0.0  # sum = per-period kWh, never use state (HA normalizes to cumulative)
 
             month_key = dt.strftime("%Y-%m")
             cumulative_before = monthly_cumulative.get(month_key, 0.0)
-            cost_state = _calculate_cost(state, cumulative_before, dt.month, self.rates)
-            monthly_cumulative[month_key] = cumulative_before + state
+            cost_state = _calculate_cost(kwh, cumulative_before, dt.month, self.rates)
+            monthly_cumulative[month_key] = cumulative_before + kwh
 
             cost_hourly.append(
                 StatisticData(start=dt, state=cost_state, sum=cost_state)
@@ -360,15 +364,16 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
             {"sum"},
         )
         rows = stats.get(statistic_id, [])
-        _log("warning", "_get_last_nonzero_stat: scanned %d total rows", len(rows))
-        for row in reversed(rows):
+        _log("warning", "_get_last_nonzero_stat[%s]: scanned %d total rows", statistic_id, len(rows))
+        for i, row in enumerate(reversed(rows)):
             row_sum = row.get("sum", 0.0) or 0.0
+            ts = row.get("start")
+            local_dt = datetime.fromtimestamp(ts, tz=ha_tz) if ts else None
+            _log("warning", "_get_last_nonzero_stat[%s]: row[%d/%d] start=%s (local: %s) sum=%.6f state=%s", statistic_id, i + 1, len(rows), ts, local_dt, row_sum, row.get("state", "MISSING"))
             if row_sum > 0:
-                ts = row.get("start")
-                local_dt = datetime.fromtimestamp(ts, tz=ha_tz)
-                _log("warning", "_get_last_nonzero_stat: found last non-zero at %s (local: %s, sum=%.4f kWh)", ts, local_dt, row_sum)
+                _log("warning", "_get_last_nonzero_stat[%s]: found last non-zero at %s (local: %s, sum=%.4f kWh)", statistic_id, ts, local_dt, row_sum)
                 return ts
-        _log("warning", "_get_last_nonzero_stat: no non-zero stats found")
+        _log("warning", "_get_last_nonzero_stat[%s]: no non-zero stats found in %d rows", statistic_id, len(rows))
         return None
 
     async def _insert_statistics(self, records: List[IntervalUsage]) -> None:
@@ -387,6 +392,13 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
             hourly_consumption.append(rec)
             if rec.total_generation > 0:
                 hourly_return.append(rec)
+
+        _log("warning", "_insert_statistics: %d records, date range %s → %s", len(records), records[0].timestamp if records else "N/A", records[-1].timestamp if records else "N/A")
+        for i, rec in enumerate(records[:3]):
+            _log("warning", "_insert_statistics: record[%d] ts=%s KWH=%.4f GKWH=%.4f", i, rec.timestamp, rec.used_from_grid, rec.total_generation)
+        if len(records) > 3:
+            for i in range(len(records) - 3, len(records)):
+                _log("warning", "_insert_statistics: record[%d] ts=%s KWH=%.4f GKWH=%.4f", i, records[i].timestamp, records[i].used_from_grid, records[i].total_generation)
 
         cons_unit_class = EnergyConverter.UNIT_CLASS
         cons_unit = UnitOfEnergy.KILO_WATT_HOUR
@@ -463,8 +475,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
         # Track cumulative kWh per month for tiered pricing (hourly)
         hourly_cumulative: Dict[str, float] = {}
 
-        # Build hourly consumption stats (cumulative)
-        cons_sum = 0.0
+        # Build hourly consumption stats (per-period)
         cons_hourly_stats: List[StatisticData] = []
         cost_hourly_stats: List[StatisticData] = []
         hourly_cost_by_day: Dict[str, float] = {}
@@ -474,9 +485,8 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
             day_key = rec.timestamp[:10]
             cumulative_before = hourly_cumulative.get(month_key, 0.0)
 
-            cons_sum += rec.used_from_grid
             cons_hourly_stats.append(
-                StatisticData(start=dt, state=rec.used_from_grid, sum=cons_sum)
+                StatisticData(start=dt, state=rec.used_from_grid, sum=rec.used_from_grid)
             )
             if _rates_configured(self.rates):
                 cost_state = _calculate_cost(rec.used_from_grid, cumulative_before, dt.month, self.rates)
@@ -486,66 +496,75 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
                 hourly_cost_by_day[day_key] = hourly_cost_by_day.get(day_key, 0.0) + cost_state
             hourly_cumulative[month_key] = cumulative_before + rec.used_from_grid
 
-        # Build daily consumption stats (cumulative)
-        cons_daily_sum = 0.0
+        # Build daily consumption stats (per-period)
         cons_daily_stats: List[StatisticData] = []
         cost_daily_stats: List[StatisticData] = []
         for day_key in sorted(daily.keys()):
             dt = _localize(datetime.strptime(day_key, "%m/%d/%Y"))
             day_total = daily[day_key]["consumption"]
-            cons_daily_sum += day_total
             cons_daily_stats.append(
-                StatisticData(start=dt, state=day_total, sum=cons_daily_sum)
+                StatisticData(start=dt, state=day_total, sum=day_total)
             )
             if _rates_configured(self.rates):
                 cost_daily_stats.append(
                     StatisticData(start=dt, state=hourly_cost_by_day.get(day_key, 0.0), sum=hourly_cost_by_day.get(day_key, 0.0))
                 )
 
-        # Build hourly return stats
-        ret_sum = 0.0
+        # Build hourly return stats (per-period)
         ret_hourly_stats: List[StatisticData] = []
         for rec in hourly_return:
             dt = _localize(self.api.parse_timestamp(rec.timestamp))
-            ret_sum += rec.total_generation
             ret_hourly_stats.append(
-                StatisticData(start=dt, state=rec.total_generation, sum=ret_sum)
+                StatisticData(start=dt, state=rec.total_generation, sum=rec.total_generation)
             )
 
-        # Build daily return stats
-        ret_daily_sum = 0.0
+        # Build daily return stats (per-period)
         ret_daily_stats: List[StatisticData] = []
         for day_key in sorted(daily.keys()):
             dt = _localize(datetime.strptime(day_key, "%m/%d/%Y"))
             day_total = daily[day_key]["return"]
-            ret_daily_sum += day_total
             ret_daily_stats.append(
-                StatisticData(start=dt, state=day_total, sum=ret_daily_sum)
+                StatisticData(start=dt, state=day_total, sum=day_total)
             )
 
         # Insert into recorder
         if cons_hourly_stats:
-            _log("info", "Adding %d hourly consumption statistics", len(cons_hourly_stats))
+            _log("warning", "Inserting %d hourly consumption stats [%s]:", len(cons_hourly_stats), cons_hourly_meta.statistic_id)
+            for s in cons_hourly_stats[:3]:
+                _log("warning", "  cons_hourly: start=%s state=%.4f sum=%.4f", s["start"], s["state"], s["sum"])
+            if len(cons_hourly_stats) > 3:
+                for s in cons_hourly_stats[-3:]:
+                    _log("warning", "  cons_hourly: start=%s state=%.4f sum=%.4f", s["start"], s["state"], s["sum"])
             async_add_external_statistics(self.hass, cons_hourly_meta, cons_hourly_stats)
 
         if cons_daily_stats:
-            _log("info", "Adding %d daily consumption statistics", len(cons_daily_stats))
+            _log("warning", "Inserting %d daily consumption stats [%s]:", len(cons_daily_stats), cons_daily_meta.statistic_id)
+            for s in cons_daily_stats[:3]:
+                _log("warning", "  cons_daily: start=%s state=%.4f sum=%.4f", s["start"], s["state"], s["sum"])
             async_add_external_statistics(self.hass, cons_daily_meta, cons_daily_stats)
 
         if ret_hourly_stats:
-            _log("info", "Adding %d hourly return statistics", len(ret_hourly_stats))
+            _log("warning", "Inserting %d hourly return stats [%s]:", len(ret_hourly_stats), ret_hourly_meta.statistic_id)
+            for s in ret_hourly_stats[:3]:
+                _log("warning", "  ret_hourly: start=%s state=%.4f sum=%.4f", s["start"], s["state"], s["sum"])
             async_add_external_statistics(self.hass, ret_hourly_meta, ret_hourly_stats)
 
         if ret_daily_stats:
-            _log("info", "Adding %d daily return statistics", len(ret_daily_stats))
+            _log("warning", "Inserting %d daily return stats [%s]:", len(ret_daily_stats), ret_daily_meta.statistic_id)
+            for s in ret_daily_stats[:3]:
+                _log("warning", "  ret_daily: start=%s state=%.4f sum=%.4f", s["start"], s["state"], s["sum"])
             async_add_external_statistics(self.hass, ret_daily_meta, ret_daily_stats)
 
         if cost_hourly_stats and cost_hourly_meta:
-            _log("info", "Adding %d hourly cost statistics", len(cost_hourly_stats))
+            _log("warning", "Inserting %d hourly cost stats [%s]:", len(cost_hourly_stats), cost_hourly_meta.statistic_id)
+            for s in cost_hourly_stats[:3]:
+                _log("warning", "  cost_hourly: start=%s state=%.4f sum=%.4f", s["start"], s["state"], s["sum"])
             async_add_external_statistics(self.hass, cost_hourly_meta, cost_hourly_stats)
 
         if cost_daily_stats and cost_daily_meta:
-            _log("info", "Adding %d daily cost statistics", len(cost_daily_stats))
+            _log("warning", "Inserting %d daily cost stats [%s]:", len(cost_daily_stats), cost_daily_meta.statistic_id)
+            for s in cost_daily_stats[:3]:
+                _log("warning", "  cost_daily: start=%s state=%.4f sum=%.4f", s["start"], s["state"], s["sum"])
             async_add_external_statistics(self.hass, cost_daily_meta, cost_daily_stats)
 
         _log("warning", "_insert_statistics complete")
