@@ -209,11 +209,13 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
                     return
                 _log("warning", "Incremental update: %s → %s", start_date.date(), end_date.date())
 
-                # Get cumulative sums at the overlap point
-                _, overlap_cons_sum = await self._get_last_stat_with_sum(cons_stat_id, start_date)
-                _, overlap_ret_sum = await self._get_last_stat_with_sum(ret_stat_id, start_date)
-                _, overlap_cost_sum = await self._get_last_stat_with_sum(cost_stat_id, start_date)
-                _log("warning", "Overlap cumulative sums: cons=%.4f ret=%.4f cost=%.4f", overlap_cons_sum or 0.0, overlap_ret_sum or 0.0, overlap_cost_sum or 0.0)
+                # Get cumulative sums BEFORE the overlap point (1 hour before start_date)
+                # so _insert_statistics can add the first row's kWh without double-counting
+                overlap_query = start_date - timedelta(hours=1)
+                _, overlap_cons_sum = await self._get_last_stat_with_sum(cons_stat_id, overlap_query)
+                _, overlap_ret_sum = await self._get_last_stat_with_sum(ret_stat_id, overlap_query)
+                _, overlap_cost_sum = await self._get_last_stat_with_sum(cost_stat_id, overlap_query)
+                _log("warning", "Overlap cumulative sums (at %s): cons=%.4f ret=%.4f cost=%.4f", overlap_query, overlap_cons_sum or 0.0, overlap_ret_sum or 0.0, overlap_cost_sum or 0.0)
 
             _log("warning", "Fetching interval data: %s → %s", start_date.date(), end_date.date())
             records = await self.api.get_interval_usage(start_date.replace(tzinfo=None), end_date.replace(tzinfo=None))
@@ -274,11 +276,12 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
         last_ts, _ = await self._get_last_stat_with_sum(cons_stat_id, query_start)
 
         if last_ts is not None:
-            # Get cumulative sum at the point just before our import range
-            _, pre_cons_sum = await self._get_last_stat_with_sum(cons_stat_id, start_date)
-            _, pre_ret_sum = await self._get_last_stat_with_sum(ret_stat_id, start_date)
-            _, pre_cost_sum = await self._get_last_stat_with_sum(cost_stat_id, start_date)
-            _log("warning", "import_range: pre-range cumulative sums: cons=%.4f ret=%.4f cost=%.4f", pre_cons_sum or 0.0, pre_ret_sum or 0.0, pre_cost_sum or 0.0)
+            # Get cumulative sum BEFORE our import range (1 hour before start_date)
+            pre_query = start_date - timedelta(hours=1)
+            _, pre_cons_sum = await self._get_last_stat_with_sum(cons_stat_id, pre_query)
+            _, pre_ret_sum = await self._get_last_stat_with_sum(ret_stat_id, pre_query)
+            _, pre_cost_sum = await self._get_last_stat_with_sum(cost_stat_id, pre_query)
+            _log("warning", "import_range: pre-range cumulative sums (at %s): cons=%.4f ret=%.4f cost=%.4f", pre_query, pre_cons_sum or 0.0, pre_ret_sum or 0.0, pre_cost_sum or 0.0)
         else:
             pre_cons_sum = 0.0
             pre_ret_sum = 0.0
