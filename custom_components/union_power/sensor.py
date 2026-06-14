@@ -186,10 +186,8 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
 
             ha_tz = ZoneInfo(self.hass.config.time_zone)
             now = datetime.now(tz=ha_tz)
-            end_date = (now - timedelta(days=DATA_LAG_DAYS)).replace(
-                hour=0, minute=0, second=0, microsecond=0
-            )
-            _log("warning", "Data window: now=%s, end_date=%s (lag=%d days, tz=%s)", now.date(), end_date.date(), DATA_LAG_DAYS, ha_tz)
+            end_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            _log("warning", "Data window: now=%s, end_date=%s (tz=%s)", now.date(), end_date.date(), ha_tz)
 
             last_stat = await self._get_last_nonzero_stat(
                 STAT_CONSUMPTION_HOURLY.format(account=self.account_number)
@@ -349,7 +347,8 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
         return len(cost_hourly) + len(cost_daily)
 
     async def _get_last_nonzero_stat(self, statistic_id: str) -> Optional[float]:
-        """Scan backwards from today to find the last stat with state > 0."""
+        """Scan backwards from today to find the last stat with sum > 0 (actual usage)."""
+        ha_tz = ZoneInfo(self.hass.config.time_zone)
         stats = await self.hass.async_add_executor_job(
             statistics_during_period,
             self.hass,
@@ -358,13 +357,18 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
             {statistic_id},
             "hour",
             None,
-            {"state"},
+            {"sum"},
         )
         rows = stats.get(statistic_id, [])
+        _log("warning", "_get_last_nonzero_stat: scanned %d total rows", len(rows))
         for row in reversed(rows):
-            state = row.get("state", 0.0) or 0.0
-            if state > 0:
-                return row.get("start")
+            row_sum = row.get("sum", 0.0) or 0.0
+            if row_sum > 0:
+                ts = row.get("start")
+                local_dt = datetime.fromtimestamp(ts, tz=ha_tz)
+                _log("warning", "_get_last_nonzero_stat: found last non-zero at %s (local: %s, sum=%.4f kWh)", ts, local_dt, row_sum)
+                return ts
+        _log("warning", "_get_last_nonzero_stat: no non-zero stats found")
         return None
 
     async def _insert_statistics(self, records: List[IntervalUsage]) -> None:
