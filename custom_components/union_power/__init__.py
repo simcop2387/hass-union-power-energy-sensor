@@ -34,6 +34,7 @@ PLATFORMS = [Platform.SENSOR]
 
 SERVICE_IMPORT_RANGE = "import_range"
 SERVICE_FILL_ALL_STATS = "fill_all_stats"
+SERVICE_TRIGGER_FETCH = "trigger_fetch"
 
 IMPORT_RANGE_SCHEMA = vol.Schema(
     {
@@ -154,6 +155,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     entry.async_on_unload(
         lambda: hass.services.async_remove(DOMAIN, SERVICE_FILL_ALL_STATS)
+    )
+
+    async def handle_trigger_fetch(call: ServiceCall) -> None:
+        """Manually trigger the normal fetch cycle."""
+        _log("warning", "Service trigger_fetch called (manual trigger)")
+        coord: UnionPowerDataUpdateCoordinator = entry.runtime_data
+        await coord.run_fetch_cycle()
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_TRIGGER_FETCH,
+        handle_trigger_fetch,
+    )
+
+    entry.async_on_unload(
+        lambda: hass.services.async_remove(DOMAIN, SERVICE_TRIGGER_FETCH)
     )
 
     return True

@@ -20,3 +20,7 @@ import_range:
 fill_all_stats:
   name: Fill All Statistics
   description: Rewrite price data on all existing statistics (requires cost_per_kwh to be set)
+
+trigger_fetch:
+  name: Trigger Fetch
+  description: Manually trigger the normal daily fetch cycle (login, fetch new data, insert stats)

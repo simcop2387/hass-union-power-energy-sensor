@@ -48,6 +48,10 @@
     "fill_all_stats": {
       "name": "Fill All Statistics",
       "description": "Create cost statistics from all existing consumption data (requires rate fields to be set)"
+    },
+    "trigger_fetch": {
+      "name": "Trigger Fetch",
+      "description": "Manually trigger the normal daily fetch cycle (login, fetch new data, insert stats)"
     }
   }
 }
