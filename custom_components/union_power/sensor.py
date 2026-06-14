@@ -189,6 +189,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
 
             cons_stat_id = STAT_CONSUMPTION_HOURLY.format(account=self.account_number)
             ret_stat_id = STAT_RETURN_HOURLY.format(account=self.account_number)
+            cost_stat_id = STAT_COST_HOURLY.format(account=self.account_number)
 
             last_ts, _ = await self._get_last_stat_with_sum(cons_stat_id, datetime(2020, 1, 1, tzinfo=ha_tz))
 
@@ -197,6 +198,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
                 _log("warning", "No prior stats found — initial import: %s → %s (%d days)", start_date.date(), end_date.date(), HISTORICAL_IMPORT_DAYS)
                 overlap_cons_sum = 0.0
                 overlap_ret_sum = 0.0
+                overlap_cost_sum = 0.0
             else:
                 start_date = datetime.fromtimestamp(last_ts, tz=ha_tz)
                 # Backdate 1 day for overlap so the boundary row gets overwritten
@@ -210,7 +212,8 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
                 # Get cumulative sums at the overlap point
                 _, overlap_cons_sum = await self._get_last_stat_with_sum(cons_stat_id, start_date)
                 _, overlap_ret_sum = await self._get_last_stat_with_sum(ret_stat_id, start_date)
-                _log("warning", "Overlap cumulative sums: cons=%.4f ret=%.4f", overlap_cons_sum or 0.0, overlap_ret_sum or 0.0)
+                _, overlap_cost_sum = await self._get_last_stat_with_sum(cost_stat_id, start_date)
+                _log("warning", "Overlap cumulative sums: cons=%.4f ret=%.4f cost=%.4f", overlap_cons_sum or 0.0, overlap_ret_sum or 0.0, overlap_cost_sum or 0.0)
 
             _log("warning", "Fetching interval data: %s → %s", start_date.date(), end_date.date())
             records = await self.api.get_interval_usage(start_date.replace(tzinfo=None), end_date.replace(tzinfo=None))
@@ -226,7 +229,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
             if len(records) > 3:
                 for i in range(len(records) - 3, len(records)):
                     _log("warning", "API record[%d]: ts=%s KWH=%.4f GKWH=%.4f", i, records[i].timestamp, records[i].used_from_grid, records[i].total_generation)
-            await self._insert_statistics(records, overlap_cons_sum or 0.0, overlap_ret_sum or 0.0)
+            await self._insert_statistics(records, overlap_cons_sum or 0.0, overlap_ret_sum or 0.0, overlap_cost_sum or 0.0)
             _log("warning", "Statistics inserted successfully")
 
             monthly_total, last_reading_time = self._compute_monthly(records, now)
@@ -263,6 +266,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
         # Get cumulative sum BEFORE the import range
         cons_stat_id = STAT_CONSUMPTION_HOURLY.format(account=self.account_number)
         ret_stat_id = STAT_RETURN_HOURLY.format(account=self.account_number)
+        cost_stat_id = STAT_COST_HOURLY.format(account=self.account_number)
 
         # Get the cumulative sum from the row just before our import range
         ha_tz = ZoneInfo(self.hass.config.time_zone)
@@ -273,12 +277,14 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
             # Get cumulative sum at the point just before our import range
             _, pre_cons_sum = await self._get_last_stat_with_sum(cons_stat_id, start_date)
             _, pre_ret_sum = await self._get_last_stat_with_sum(ret_stat_id, start_date)
-            _log("warning", "import_range: pre-range cumulative sums: cons=%.4f ret=%.4f", pre_cons_sum or 0.0, pre_ret_sum or 0.0)
+            _, pre_cost_sum = await self._get_last_stat_with_sum(cost_stat_id, start_date)
+            _log("warning", "import_range: pre-range cumulative sums: cons=%.4f ret=%.4f cost=%.4f", pre_cons_sum or 0.0, pre_ret_sum or 0.0, pre_cost_sum or 0.0)
         else:
             pre_cons_sum = 0.0
             pre_ret_sum = 0.0
+            pre_cost_sum = 0.0
 
-        await self._insert_statistics(records, pre_cons_sum or 0.0, pre_ret_sum or 0.0)
+        await self._insert_statistics(records, pre_cons_sum or 0.0, pre_ret_sum or 0.0, pre_cost_sum or 0.0)
         _log("warning", "import_range inserted %d records for %s → %s", len(records), start_date.date(), end_date.date())
 
         # Adjust post-range rows to continue from new cumulative sums
@@ -391,6 +397,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
         cost_hourly: List[StatisticData] = []
         cost_daily_map: Dict[str, float] = {}
         monthly_cumulative: Dict[str, float] = {}
+        cost_cumsum = 0.0
         prev_sum = 0.0
 
         for row in rows:
@@ -407,8 +414,9 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
             cost_state = _calculate_cost(kwh, cumulative_before, dt.month, self.rates)
             monthly_cumulative[month_key] = cumulative_before + kwh
 
+            cost_cumsum += cost_state
             cost_hourly.append(
-                StatisticData(start=dt, state=cost_state, sum=cost_state)
+                StatisticData(start=dt, state=cost_state, sum=cost_cumsum)
             )
             day_key = dt.strftime("%Y-%m-%d")
             if day_key not in cost_daily_map:
@@ -416,10 +424,12 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
             cost_daily_map[day_key] += cost_state
 
         cost_daily: List[StatisticData] = []
+        cost_daily_cumsum = 0.0
         for day_key in sorted(cost_daily_map.keys()):
             dt = _localize(datetime.strptime(day_key, "%Y-%m-%d"))
+            cost_daily_cumsum += cost_daily_map[day_key]
             cost_daily.append(
-                StatisticData(start=dt, state=cost_daily_map[day_key], sum=cost_daily_map[day_key])
+                StatisticData(start=dt, state=cost_daily_map[day_key], sum=cost_daily_cumsum)
             )
 
         cost_hourly_meta = StatisticMetaData(
@@ -502,6 +512,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
         records: List[IntervalUsage],
         last_cons_sum: float = 0.0,
         last_ret_sum: float = 0.0,
+        last_cost_sum: float = 0.0,
     ) -> None:
         """Insert hourly and daily statistics into the HA recorder.
 
@@ -605,6 +616,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
         # Cumulative sum accumulators (continuing from last known values)
         cons_cumsum = last_cons_sum
         ret_cumsum = last_ret_sum
+        cost_cumsum = last_cost_sum
 
         # Track cumulative kWh per month for tiered pricing (hourly)
         hourly_cumulative: Dict[str, float] = {}
@@ -625,8 +637,9 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
             )
             if _rates_configured(self.rates):
                 cost_state = _calculate_cost(rec.used_from_grid, cumulative_before, dt.month, self.rates)
+                cost_cumsum += cost_state
                 cost_hourly_stats.append(
-                    StatisticData(start=dt, state=cost_state, sum=cost_state)
+                    StatisticData(start=dt, state=cost_state, sum=cost_cumsum)
                 )
                 hourly_cost_by_day[day_key] = hourly_cost_by_day.get(day_key, 0.0) + cost_state
             hourly_cumulative[month_key] = cumulative_before + rec.used_from_grid
@@ -635,6 +648,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
         cons_daily_stats: List[StatisticData] = []
         cost_daily_stats: List[StatisticData] = []
         cons_daily_cumsum = last_cons_sum
+        cost_daily_cumsum = last_cost_sum
         for day_key in sorted(daily.keys()):
             dt = _localize(datetime.strptime(day_key, "%m/%d/%Y"))
             day_total = daily[day_key]["consumption"]
@@ -644,8 +658,9 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
             )
             if _rates_configured(self.rates):
                 day_cost = hourly_cost_by_day.get(day_key, 0.0)
+                cost_daily_cumsum += day_cost
                 cost_daily_stats.append(
-                    StatisticData(start=dt, state=day_cost, sum=day_cost)
+                    StatisticData(start=dt, state=day_cost, sum=cost_daily_cumsum)
                 )
 
         # Build hourly return stats: state=per-period, sum=cumulative
