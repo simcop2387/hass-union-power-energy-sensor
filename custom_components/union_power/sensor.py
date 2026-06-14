@@ -408,7 +408,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
             monthly_cumulative[month_key] = cumulative_before + kwh
 
             cost_hourly.append(
-                StatisticData(start=dt, state=cost_state)
+                StatisticData(start=dt, state=cost_state, sum=cost_state)
             )
             day_key = dt.strftime("%Y-%m-%d")
             if day_key not in cost_daily_map:
@@ -419,12 +419,12 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
         for day_key in sorted(cost_daily_map.keys()):
             dt = _localize(datetime.strptime(day_key, "%Y-%m-%d"))
             cost_daily.append(
-                StatisticData(start=dt, state=cost_daily_map[day_key])
+                StatisticData(start=dt, state=cost_daily_map[day_key], sum=cost_daily_map[day_key])
             )
 
         cost_hourly_meta = StatisticMetaData(
             mean_type=StatisticMeanType.NONE,
-            has_sum=False,
+            has_sum=True,
             name=f"Union Power Cost Hourly - {self.account_number}",
             source=DOMAIN,
             statistic_id=STAT_COST_HOURLY.format(account=self.account_number),
@@ -436,7 +436,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
 
         cost_daily_meta = StatisticMetaData(
             mean_type=StatisticMeanType.NONE,
-            has_sum=False,
+            has_sum=True,
             name=f"Union Power Cost Daily - {self.account_number}",
             source=DOMAIN,
             statistic_id=STAT_COST_DAILY.format(account=self.account_number),
@@ -578,7 +578,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
         if _rates_configured(self.rates):
             cost_hourly_meta = StatisticMetaData(
                 mean_type=StatisticMeanType.NONE,
-                has_sum=False,
+                has_sum=True,
                 name=f"Union Power Cost Hourly - {self.account_number}",
                 source=DOMAIN,
                 statistic_id=STAT_COST_HOURLY.format(account=self.account_number),
@@ -587,7 +587,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
             )
             cost_daily_meta = StatisticMetaData(
                 mean_type=StatisticMeanType.NONE,
-                has_sum=False,
+                has_sum=True,
                 name=f"Union Power Cost Daily - {self.account_number}",
                 source=DOMAIN,
                 statistic_id=STAT_COST_DAILY.format(account=self.account_number),
@@ -626,7 +626,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
             if _rates_configured(self.rates):
                 cost_state = _calculate_cost(rec.used_from_grid, cumulative_before, dt.month, self.rates)
                 cost_hourly_stats.append(
-                    StatisticData(start=dt, state=cost_state)
+                    StatisticData(start=dt, state=cost_state, sum=cost_state)
                 )
                 hourly_cost_by_day[day_key] = hourly_cost_by_day.get(day_key, 0.0) + cost_state
             hourly_cumulative[month_key] = cumulative_before + rec.used_from_grid
@@ -645,7 +645,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
             if _rates_configured(self.rates):
                 day_cost = hourly_cost_by_day.get(day_key, 0.0)
                 cost_daily_stats.append(
-                    StatisticData(start=dt, state=day_cost)
+                    StatisticData(start=dt, state=day_cost, sum=day_cost)
                 )
 
         # Build hourly return stats: state=per-period, sum=cumulative
@@ -699,13 +699,13 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
         if cost_hourly_stats and cost_hourly_meta:
             _log("warning", "Inserting %d hourly cost stats [%s]:", len(cost_hourly_stats), cost_hourly_meta["statistic_id"])
             for s in cost_hourly_stats[:3]:
-                _log("warning", "  cost_hourly: start=%s state=%.4f", s["start"], s["state"])
+                _log("warning", "  cost_hourly: start=%s state=%.4f sum=%.4f", s["start"], s["state"], s["sum"])
             async_add_external_statistics(self.hass, cost_hourly_meta, cost_hourly_stats)
 
         if cost_daily_stats and cost_daily_meta:
             _log("warning", "Inserting %d daily cost stats [%s]:", len(cost_daily_stats), cost_daily_meta["statistic_id"])
             for s in cost_daily_stats[:3]:
-                _log("warning", "  cost_daily: start=%s state=%.4f", s["start"], s["state"])
+                _log("warning", "  cost_daily: start=%s state=%.4f sum=%.4f", s["start"], s["state"], s["sum"])
             async_add_external_statistics(self.hass, cost_daily_meta, cost_daily_stats)
 
         _log("warning", "_insert_statistics complete")
