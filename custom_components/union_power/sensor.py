@@ -468,7 +468,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
             get_last_statistics,
             self.hass,
             1,
-            {statistic_id},
+            statistic_id,
             True,
             {"sum"},
         )
