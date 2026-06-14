@@ -177,7 +177,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
         """Return stored data. Fetching is done by background tasks, not here."""
         return self.data or {}
 
-   async def run_fetch_cycle(self) -> None:
+    async def run_fetch_cycle(self) -> None:
         """Run a full fetch cycle: login, fetch, insert stats, update coordinator data."""
         try:
             _log("warning", "Running fetch cycle")
@@ -350,7 +350,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
             )
             async_add_external_statistics(self.hass, meta, adjusted)
 
- async def fill_all_stats(self) -> int:
+    async def fill_all_stats(self) -> int:
         """Create cost statistics from all existing consumption data."""
         if not _rates_configured(self.rates):
             _log("warning", "fill_all_stats: no rates configured, nothing to do")
@@ -502,7 +502,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
         _log("warning", "_get_last_stat_with_sum[%s]: no overlap at %s, using last sum=%.4f", statistic_id, query_start, last_sum)
         return (last_ts, last_sum)
 
-  async def _insert_statistics(
+    async def _insert_statistics(
         self,
         records: List[IntervalUsage],
         last_cons_sum: float = 0.0,
