@@ -99,12 +99,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
+    _log("warning", "Scheduling initial background fetch and daily 6:00 AM recurring fetch")
     hass.async_create_task(
         _initial_fetch(hass, coordinator),
         name="union_power_initial_fetch",
     )
 
     async def _scheduled_fetch(_: datetime) -> None:
+        _log("warning", "Scheduled 6:00 AM fetch triggered")
         await coordinator.run_fetch_cycle()
 
     entry.async_on_unload(
@@ -159,9 +161,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def _initial_fetch(hass: HomeAssistant, coordinator: UnionPowerDataUpdateCoordinator) -> None:
     """Run the initial data fetch in the background."""
-    _log("info", "Starting initial background data fetch...")
-    await coordinator.run_fetch_cycle()
-    _log("info", "Initial background data fetch complete")
+    _log("warning", "Starting initial background data fetch...")
+    try:
+        await coordinator.run_fetch_cycle()
+        _log("warning", "Initial background data fetch complete")
+    except Exception:
+        _log("exception", "Initial background data fetch failed")
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

@@ -180,46 +180,55 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
     async def run_fetch_cycle(self) -> None:
         """Run a full fetch cycle: login, fetch, insert stats, update coordinator data."""
         try:
-            _log("info", "Running fetch cycle")
+            _log("warning", "Running fetch cycle")
             await self.api.login()
+            _log("warning", "Login successful")
 
             now = datetime.now()
             end_date = (now - timedelta(days=DATA_LAG_DAYS)).replace(
                 hour=0, minute=0, second=0, microsecond=0
             )
+            _log("warning", "Data window: now=%s, end_date=%s (lag=%d days)", now.date(), end_date.date(), DATA_LAG_DAYS)
 
             last_stat = await self._get_last_stat(
                 STAT_CONSUMPTION_HOURLY.format(account=self.account_number)
             )
+            _log("warning", "Last stat timestamp: %s", last_stat)
 
             if last_stat is None:
                 start_date = end_date - timedelta(days=HISTORICAL_IMPORT_DAYS)
-                _log("info", "Initial import: %s → %s (%d days)", start_date.date(), end_date.date(), HISTORICAL_IMPORT_DAYS)
+                _log("warning", "No prior stats found — initial import: %s → %s (%d days)", start_date.date(), end_date.date(), HISTORICAL_IMPORT_DAYS)
             else:
                 start_date = datetime.fromtimestamp(last_stat, tz=timezone.utc).replace(
                     tzinfo=None
                 ) - timedelta(days=2)
+                _log("warning", "Incremental window: last_stat=%s, start_date=%s, end_date=%s", last_stat, start_date.date(), end_date.date())
                 if start_date >= end_date:
-                    _log("debug", "No new data to fetch")
+                    _log("warning", "No new data to fetch: start_date (%s) >= end_date (%s)", start_date.date(), end_date.date())
                     return
-                _log("info", "Incremental update: %s → %s", start_date.date(), end_date.date())
+                _log("warning", "Incremental update: %s → %s", start_date.date(), end_date.date())
 
+            _log("warning", "Fetching interval data: %s → %s", start_date.date(), end_date.date())
             records = await self.api.get_interval_usage(start_date, end_date)
+            _log("warning", "API returned %d records", len(records))
 
             if not records:
                 _log("warning", "No interval data returned for %s → %s", start_date.date(), end_date.date())
                 return
 
+            _log("warning", "Inserting statistics for %d records", len(records))
             await self._insert_statistics(records)
+            _log("warning", "Statistics inserted successfully")
 
             monthly_total, last_reading_time = self._compute_monthly(records)
+            _log("warning", "Monthly total: %.3f kWh, last reading: %s", monthly_total, last_reading_time)
 
             self.data = {
                 ENERGY_SENSOR_KEY: monthly_total,
                 ATTR_LAST_READING_TIME: last_reading_time,
                 ATTR_ACCOUNT_NUMBER: self.account_number,
             }
-            _log("info", "Fetch cycle complete: %d records, %.3f kWh monthly", len(records), monthly_total)
+            _log("warning", "Fetch cycle complete: %d records, %.3f kWh monthly", len(records), monthly_total)
 
         except (UnionPowerAuthenticationError, UnionPowerConnectionError) as e:
             _log("error", "Fetch cycle failed - authentication/connection: %s", e)
