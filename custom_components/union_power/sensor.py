@@ -190,10 +190,10 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
             )
             _log("warning", "Data window: now=%s, end_date=%s (lag=%d days)", now.date(), end_date.date(), DATA_LAG_DAYS)
 
-            last_stat = await self._get_last_stat(
+            last_stat = await self._get_last_nonzero_stat(
                 STAT_CONSUMPTION_HOURLY.format(account=self.account_number)
             )
-            _log("warning", "Last stat timestamp: %s", last_stat)
+            _log("warning", "Last non-zero stat timestamp: %s", last_stat)
 
             if last_stat is None:
                 start_date = end_date - timedelta(days=HISTORICAL_IMPORT_DAYS)
@@ -201,10 +201,10 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
             else:
                 start_date = datetime.fromtimestamp(last_stat, tz=timezone.utc).replace(
                     tzinfo=None
-                ) - timedelta(days=2)
+                )
                 _log("warning", "Incremental window: last_stat=%s, start_date=%s, end_date=%s", last_stat, start_date.date(), end_date.date())
-                if start_date >= end_date:
-                    _log("warning", "No new data to fetch: start_date (%s) >= end_date (%s)", start_date.date(), end_date.date())
+                if start_date > end_date:
+                    _log("warning", "No new data to fetch: start_date (%s) > end_date (%s)", start_date.date(), end_date.date())
                     return
                 _log("warning", "Incremental update: %s → %s", start_date.date(), end_date.date())
 
@@ -349,13 +349,23 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
 
         return len(cost_hourly) + len(cost_daily)
 
-    async def _get_last_stat(self, statistic_id: str) -> Optional[float]:
-        """Get the timestamp of the last statistic entry."""
-        last_stat = await self.hass.async_add_executor_job(
-            get_last_statistics, self.hass, 1, statistic_id, True, set()
+    async def _get_last_nonzero_stat(self, statistic_id: str) -> Optional[float]:
+        """Scan backwards from today to find the last stat with state > 0."""
+        stats = await self.hass.async_add_executor_job(
+            statistics_during_period,
+            self.hass,
+            datetime(2020, 1, 1, tzinfo=timezone.utc),
+            datetime.now(tz=timezone.utc),
+            {statistic_id},
+            "hour",
+            None,
+            {"state"},
         )
-        if last_stat and statistic_id in last_stat:
-            return last_stat[statistic_id][0].get("start")
+        rows = stats.get(statistic_id, [])
+        for row in reversed(rows):
+            state = row.get("state", 0.0) or 0.0
+            if state > 0:
+                return row.get("start")
         return None
 
     async def _insert_statistics(self, records: List[IntervalUsage]) -> None:
