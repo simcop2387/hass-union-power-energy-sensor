@@ -24,7 +24,6 @@ POLL_INTERVAL_MINUTES = 1440
 # API constants
 BASE_URL = "https://services.union-power.com/onlineportal"
 DEFAULT_TIMEOUT = 30  # seconds
-DATA_LAG_DAYS = 2  # Data is delayed by this many days
 
 # Historical import
 HISTORICAL_IMPORT_DAYS = 90  # Initial backfill window

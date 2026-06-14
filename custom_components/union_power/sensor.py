@@ -9,7 +9,6 @@ from typing import Any, Dict, List, Optional
 from homeassistant.components.recorder.statistics import (
     async_add_external_statistics,
     get_last_statistics,
-    get_start_time,
     statistics_during_period,
 )
 from homeassistant.components.recorder import get_instance
@@ -62,7 +61,6 @@ from .const import (
     CONF_WINTER_RATE_TIER2,
     SUMMER_MONTHS,
     TIER_THRESHOLD_KWH,
-    DATA_LAG_DAYS,
     HISTORICAL_IMPORT_DAYS,
     ENERGY_SENSOR_KEY,
     ATTR_LAST_READING_TIME,
@@ -231,7 +229,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
             await self._insert_statistics(records, overlap_cons_sum or 0.0, overlap_ret_sum or 0.0)
             _log("warning", "Statistics inserted successfully")
 
-            monthly_total, last_reading_time = self._compute_monthly(records)
+            monthly_total, last_reading_time = self._compute_monthly(records, now)
             _log("warning", "Last reading: %s, month-to-date: %.3f kWh", last_reading_time, monthly_total)
 
             self.data = {
@@ -318,11 +316,12 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
         _log("warning", "_adjust_post_range[%s]: %d rows after cutoff, boundary sum=%.4f", statistic_id, len(rows), new_boundary_sum)
 
         # Extract per-period from consecutive differences and rebuild cumulative
+        # Skip rows[0] — it's the boundary row we just inserted, already correct
         adjusted: List[StatisticData] = []
         cumsum = new_boundary_sum
         prev_sum = new_boundary_sum
 
-        for row in rows:
+        for row in rows[1:]:
             old_sum = row.get("sum", 0.0) or 0.0
             per_period = old_sum - prev_sum
             if per_period < 0:
@@ -392,7 +391,6 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
         cost_hourly: List[StatisticData] = []
         cost_daily_map: Dict[str, float] = {}
         monthly_cumulative: Dict[str, float] = {}
-        cost_cumsum = 0.0
         prev_sum = 0.0
 
         for row in rows:
@@ -408,10 +406,9 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
             cumulative_before = monthly_cumulative.get(month_key, 0.0)
             cost_state = _calculate_cost(kwh, cumulative_before, dt.month, self.rates)
             monthly_cumulative[month_key] = cumulative_before + kwh
-            cost_cumsum += cost_state
 
             cost_hourly.append(
-                StatisticData(start=dt, state=cost_state, sum=cost_cumsum)
+                StatisticData(start=dt, state=cost_state)
             )
             day_key = dt.strftime("%Y-%m-%d")
             if day_key not in cost_daily_map:
@@ -419,17 +416,15 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
             cost_daily_map[day_key] += cost_state
 
         cost_daily: List[StatisticData] = []
-        cost_daily_cumsum = 0.0
         for day_key in sorted(cost_daily_map.keys()):
-            dt = _localize(datetime.strptime(day_key, "%m/%d/%Y"))
-            cost_daily_cumsum += cost_daily_map[day_key]
+            dt = _localize(datetime.strptime(day_key, "%Y-%m-%d"))
             cost_daily.append(
-                StatisticData(start=dt, state=cost_daily_map[day_key], sum=cost_daily_cumsum)
+                StatisticData(start=dt, state=cost_daily_map[day_key])
             )
 
         cost_hourly_meta = StatisticMetaData(
             mean_type=StatisticMeanType.NONE,
-            has_sum=True,
+            has_sum=False,
             name=f"Union Power Cost Hourly - {self.account_number}",
             source=DOMAIN,
             statistic_id=STAT_COST_HOURLY.format(account=self.account_number),
@@ -441,7 +436,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
 
         cost_daily_meta = StatisticMetaData(
             mean_type=StatisticMeanType.NONE,
-            has_sum=True,
+            has_sum=False,
             name=f"Union Power Cost Daily - {self.account_number}",
             source=DOMAIN,
             statistic_id=STAT_COST_DAILY.format(account=self.account_number),
@@ -583,7 +578,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
         if _rates_configured(self.rates):
             cost_hourly_meta = StatisticMetaData(
                 mean_type=StatisticMeanType.NONE,
-                has_sum=True,
+                has_sum=False,
                 name=f"Union Power Cost Hourly - {self.account_number}",
                 source=DOMAIN,
                 statistic_id=STAT_COST_HOURLY.format(account=self.account_number),
@@ -592,7 +587,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
             )
             cost_daily_meta = StatisticMetaData(
                 mean_type=StatisticMeanType.NONE,
-                has_sum=True,
+                has_sum=False,
                 name=f"Union Power Cost Daily - {self.account_number}",
                 source=DOMAIN,
                 statistic_id=STAT_COST_DAILY.format(account=self.account_number),
@@ -610,7 +605,6 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
         # Cumulative sum accumulators (continuing from last known values)
         cons_cumsum = last_cons_sum
         ret_cumsum = last_ret_sum
-        cost_cumsum = 0.0
 
         # Track cumulative kWh per month for tiered pricing (hourly)
         hourly_cumulative: Dict[str, float] = {}
@@ -631,9 +625,8 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
             )
             if _rates_configured(self.rates):
                 cost_state = _calculate_cost(rec.used_from_grid, cumulative_before, dt.month, self.rates)
-                cost_cumsum += cost_state
                 cost_hourly_stats.append(
-                    StatisticData(start=dt, state=cost_state, sum=cost_cumsum)
+                    StatisticData(start=dt, state=cost_state)
                 )
                 hourly_cost_by_day[day_key] = hourly_cost_by_day.get(day_key, 0.0) + cost_state
             hourly_cumulative[month_key] = cumulative_before + rec.used_from_grid
@@ -642,7 +635,6 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
         cons_daily_stats: List[StatisticData] = []
         cost_daily_stats: List[StatisticData] = []
         cons_daily_cumsum = last_cons_sum
-        cost_daily_cumsum = 0.0
         for day_key in sorted(daily.keys()):
             dt = _localize(datetime.strptime(day_key, "%m/%d/%Y"))
             day_total = daily[day_key]["consumption"]
@@ -652,9 +644,8 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
             )
             if _rates_configured(self.rates):
                 day_cost = hourly_cost_by_day.get(day_key, 0.0)
-                cost_daily_cumsum += day_cost
                 cost_daily_stats.append(
-                    StatisticData(start=dt, state=day_cost, sum=cost_daily_cumsum)
+                    StatisticData(start=dt, state=day_cost)
                 )
 
         # Build hourly return stats: state=per-period, sum=cumulative
@@ -708,27 +699,25 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
         if cost_hourly_stats and cost_hourly_meta:
             _log("warning", "Inserting %d hourly cost stats [%s]:", len(cost_hourly_stats), cost_hourly_meta["statistic_id"])
             for s in cost_hourly_stats[:3]:
-                _log("warning", "  cost_hourly: start=%s state=%.4f sum=%.4f", s["start"], s["state"], s["sum"])
+                _log("warning", "  cost_hourly: start=%s state=%.4f", s["start"], s["state"])
             async_add_external_statistics(self.hass, cost_hourly_meta, cost_hourly_stats)
 
         if cost_daily_stats and cost_daily_meta:
             _log("warning", "Inserting %d daily cost stats [%s]:", len(cost_daily_stats), cost_daily_meta["statistic_id"])
             for s in cost_daily_stats[:3]:
-                _log("warning", "  cost_daily: start=%s state=%.4f sum=%.4f", s["start"], s["state"], s["sum"])
+                _log("warning", "  cost_daily: start=%s state=%.4f", s["start"], s["state"])
             async_add_external_statistics(self.hass, cost_daily_meta, cost_daily_stats)
 
         _log("warning", "_insert_statistics complete")
 
-    @staticmethod
-    def _compute_monthly(records: List[IntervalUsage]) -> tuple[float, str]:
+    def _compute_monthly(self, records: List[IntervalUsage], reference_now: datetime) -> tuple[float, str]:
         """Compute current month-to-date total and last reading time."""
-        now = datetime.now()
         monthly_total = 0.0
         last_reading_time = ""
 
         for rec in records:
             dt = UnionPowerAPI.parse_timestamp(rec.timestamp)
-            if dt.year == now.year and dt.month == now.month:
+            if dt.year == reference_now.year and dt.month == reference_now.month:
                 monthly_total += rec.used_from_grid
                 last_reading_time = rec.timestamp
 
