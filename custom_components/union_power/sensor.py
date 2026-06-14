@@ -529,7 +529,7 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
 
         # Insert into recorder
         if cons_hourly_stats:
-            _log("warning", "Inserting %d hourly consumption stats [%s]:", len(cons_hourly_stats), cons_hourly_meta.statistic_id)
+            _log("warning", "Inserting %d hourly consumption stats [%s]:", len(cons_hourly_stats), cons_hourly_meta["statistic_id"])
             for s in cons_hourly_stats[:3]:
                 _log("warning", "  cons_hourly: start=%s state=%.4f sum=%.4f", s["start"], s["state"], s["sum"])
             if len(cons_hourly_stats) > 3:
@@ -538,31 +538,31 @@ class UnionPowerDataUpdateCoordinator(DataUpdateCoordinator):
             async_add_external_statistics(self.hass, cons_hourly_meta, cons_hourly_stats)
 
         if cons_daily_stats:
-            _log("warning", "Inserting %d daily consumption stats [%s]:", len(cons_daily_stats), cons_daily_meta.statistic_id)
+            _log("warning", "Inserting %d daily consumption stats [%s]:", len(cons_daily_stats), cons_daily_meta["statistic_id"])
             for s in cons_daily_stats[:3]:
                 _log("warning", "  cons_daily: start=%s state=%.4f sum=%.4f", s["start"], s["state"], s["sum"])
             async_add_external_statistics(self.hass, cons_daily_meta, cons_daily_stats)
 
         if ret_hourly_stats:
-            _log("warning", "Inserting %d hourly return stats [%s]:", len(ret_hourly_stats), ret_hourly_meta.statistic_id)
+            _log("warning", "Inserting %d hourly return stats [%s]:", len(ret_hourly_stats), ret_hourly_meta["statistic_id"])
             for s in ret_hourly_stats[:3]:
                 _log("warning", "  ret_hourly: start=%s state=%.4f sum=%.4f", s["start"], s["state"], s["sum"])
             async_add_external_statistics(self.hass, ret_hourly_meta, ret_hourly_stats)
 
         if ret_daily_stats:
-            _log("warning", "Inserting %d daily return stats [%s]:", len(ret_daily_stats), ret_daily_meta.statistic_id)
+            _log("warning", "Inserting %d daily return stats [%s]:", len(ret_daily_stats), ret_daily_meta["statistic_id"])
             for s in ret_daily_stats[:3]:
                 _log("warning", "  ret_daily: start=%s state=%.4f sum=%.4f", s["start"], s["state"], s["sum"])
             async_add_external_statistics(self.hass, ret_daily_meta, ret_daily_stats)
 
         if cost_hourly_stats and cost_hourly_meta:
-            _log("warning", "Inserting %d hourly cost stats [%s]:", len(cost_hourly_stats), cost_hourly_meta.statistic_id)
+            _log("warning", "Inserting %d hourly cost stats [%s]:", len(cost_hourly_stats), cost_hourly_meta["statistic_id"])
             for s in cost_hourly_stats[:3]:
                 _log("warning", "  cost_hourly: start=%s state=%.4f sum=%.4f", s["start"], s["state"], s["sum"])
             async_add_external_statistics(self.hass, cost_hourly_meta, cost_hourly_stats)
 
         if cost_daily_stats and cost_daily_meta:
-            _log("warning", "Inserting %d daily cost stats [%s]:", len(cost_daily_stats), cost_daily_meta.statistic_id)
+            _log("warning", "Inserting %d daily cost stats [%s]:", len(cost_daily_stats), cost_daily_meta["statistic_id"])
             for s in cost_daily_stats[:3]:
                 _log("warning", "  cost_daily: start=%s state=%.4f sum=%.4f", s["start"], s["state"], s["sum"])
             async_add_external_statistics(self.hass, cost_daily_meta, cost_daily_stats)
